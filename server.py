@@ -221,7 +221,9 @@ header{display:flex;align-items:center;gap:13px;padding:12px 20px;border-bottom:
 
 .wrap{flex:1;display:grid;grid-template-columns:minmax(0,780px);justify-content:center;min-height:0;overflow:hidden}
 body.editing .wrap{grid-template-columns:minmax(320px,0.85fr) minmax(380px,1.15fr);justify-content:stretch}
-.col.left{display:none}body.editing .col.left{display:flex}
+.col.left{display:none}body.editing .col.left,body.peek .col.left{display:flex}
+body.peek .wrap{grid-template-columns:minmax(300px,0.8fr) minmax(360px,1.2fr);justify-content:stretch}
+.peeknote{font-size:12.5px;color:var(--dim);background:var(--warn-soft);border:1px solid oklch(0.55 0.13 70 / .3);border-radius:10px;padding:8px 11px;margin:8px 0}
 .col{min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .col.left{border-right:1px solid var(--line)}
 .phead{display:flex;align-items:center;gap:9px;padding:13px 18px 10px}
@@ -387,6 +389,9 @@ textarea:focus,input:focus{outline:none}
  body.editing .composer{display:none}
  body.editing .path,body.editing .col.right .phead{display:none}
  body.editing .col.right{padding-bottom:46dvh}
+ body.peek .wrap{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important}
+ body.peek .col.left{display:flex;position:static;height:auto;max-height:32dvh;border:0;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none;animation:none}
+ body.peek .col.left .phead h2{display:block}
  body.editing .obj .row{flex-direction:row}
  body.editing .obj .row .btn{padding:11px 8px;font-size:14.5px}
  .welcome{padding:22px 18px}.welcome h2{font-size:23px}
@@ -554,7 +559,7 @@ function stepsHtml(){const i={attack:0,defend:1,done:2}[phase];
  return '<div class="steps">'+['1 Hack it','2 Patch it','3 Done'].map((t,k)=>`<span class="${k===i?'on':(k<i?'ok':'')}">${k<i?'✓ ':''}${t}</span>`).join('')+'</div>';}
 function renderObj(){const L=level;const o=$('#obj');if(!L){o.innerHTML='';return;}
  const editing=document.body.classList.contains('editing');
- if(phase==='attack'){o.className='obj';o.innerHTML=stepsHtml()+`<div class="goal">${L.goal}</div><div class="row">
+ if(phase==='attack'){o.className='obj';o.innerHTML=stepsHtml()+`<div class="goal">${L.goal}</div>${document.body.classList.contains('peek')?'<div class="peeknote">👈 A shady tool was added to this AI (marked ⚠). <b>That is the injection.</b> You can even edit it. Then trigger it:</div>':''}<div class="row">
    <button class="btn sm" onclick="insertAttack()">⚡ Insert attack</button>
    <button class="btn ghost sm" onclick="showHint()">💡 Show solution</button></div>`;}
  else if(phase==='defend'){o.className='obj def';o.innerHTML=stepsHtml()+`<div class="goal">It worked. Now change the AI so the <b>same trick fails</b>.</div><div class="row">
@@ -567,14 +572,15 @@ function renderObj(){const L=level;const o=$('#obj');if(!L){o.innerHTML='';retur
 function loadLevel(L){level=L;phase='attack';lastAttack=null;
  $('#sys').value=L.sys;tools=JSON.parse(JSON.stringify(L.tools));
  renderTools();renderMission();renderPath();renderObj();resetChat();
- document.body.classList.remove('editing');renderObj();}
+ document.body.classList.remove('editing');document.body.classList.toggle('peek',L.tools.length>0);
+ $('#leftTitle').textContent='\uD83E\uDDF0 The AI\'s setup';renderObj();}
 
 /* chat */
 function sysline(h){const d=document.createElement('div');d.className='sysline';d.innerHTML=h;$('#chat').appendChild(d);scroll();}
 function turn(){const d=document.createElement('div');d.className='turn';$('#chat').appendChild(d);return d;}
 function scroll(){$('#chat').scrollTop=1e9;}
 function insertAttack(){$('#inp').value=level.attack;$('#inp').focus();}
-function openHood(){document.body.classList.add('editing');renderObj();}
+function openHood(){document.body.classList.remove('peek');document.body.classList.add('editing');renderObj();}
 function showHint(){const L=level;const d=document.createElement('div');d.className='hintcard';
  if(phase==='attack')d.innerHTML=`<h4>💡 The solution</h4><p>${esc(L.aHint)}</p><div class="sol">${esc(L.attack)}</div><button class="btn warn sm" onclick="insertAttack()">⚡ Insert this attack</button>`;
  else d.innerHTML=`<h4>💡 The fix</h4><p>${esc(L.fHint)}</p><button class="btn warn sm" onclick="applyFix()">🔧 Apply this fix for me</button>`;

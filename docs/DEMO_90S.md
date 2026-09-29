@@ -14,7 +14,7 @@ reads "Live run completed" after an authorized run on Vincent's server.
 | 32-46 | "Remove" on get_focus_tip, "Replay exact attack", "Run benign control" | "The lazy fix is to delete the tool. The same attack no longer works, but the control fails: no focus tip. Removing the useful capability is not a win." |
 | 46-58 | "Restore original", "Apply suggested patch" | "Instead I rewrite the description and mark tool text as untrusted data. The diff shows exactly what changed." |
 | 58-70 | "Replay exact attack" | "Identical input, fresh history. Not observed in this run, and the before and after sit side by side." |
-| 70-80 | "Run benign control" | "The legitimate request still uses the tool and gets a tip. Security that keeps the work moving." |
+| 70-80 | "Run benign control" | "The legitimate request still uses the tool and gets a tip. The Explain card says what happened, why, and what changed. Security that keeps the work moving." |
 | 80-90 | Point at the connection label and footer | "Scripted here, and live against Vincent's server when approved. Tool effects are always simulated, and one run is evidence, not a guarantee." |
 
 Rehearse once with Restart this level. Do not record the fixture as live, force

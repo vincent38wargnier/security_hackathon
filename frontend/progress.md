@@ -21,3 +21,11 @@ Do not create or pretend to have a live provider before that handoff.
 Standalone build and 19 model/protocol tests passed. Browser walkthrough passed
 at 390/768/1440 with no errors or unexpected requests. Standard game client also
 passed; screenshots inspected. See ../docs/VERIFICATION.md. server.py untouched.
+
+## Attack lab (branch frontend/attack-patch-lab)
+
+Built the React attack -> patch -> exact replay -> benign control lab around
+Vincent's /api/chat contract. Scripted fixture is the default and labelled.
+Live adapter verified against mocks and the key-less local server only.
+Drills moved behind the "Offline drills" tab (?mode=drills), unchanged.
+Status, blockers and requests for Vincent: ../docs/LAB_INTEGRATION.md.

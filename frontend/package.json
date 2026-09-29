@@ -5,13 +5,14 @@
   "type": "module",
   "engines": { "node": ">=22.12.0" },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1 --port 8793",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test src/protect/*.test.mjs",
     "test:protect": "npm test",
-    "qa:protect": "node scripts/protect-qa.mjs"
+    "qa:protect": "node scripts/protect-qa.mjs",
+    "qa:lab": "node scripts/lab-qa.mjs"
   },
   "dependencies": {
     "react": "19.2.0",

@@ -49,18 +49,24 @@ boundary, and keep legitimate work moving. Fictional data, no real attacks.
 ```sh
 cd frontend
 npm ci
-npm run dev -- --port 8794 --strictPort
+npm run dev            # http://127.0.0.1:8793/protect
 ```
 
-Open http://127.0.0.1:8794/protect (the root also opens the game).
+`/protect` opens the **Attack lab** (Vincent's five levels: attack, patch,
+exact replay, benign control). The original three-incident game is the
+**Offline drills** tab (`/protect?mode=drills`).
 
 ```sh
-npm test
+npm test               # model, proposal protocol, lab adapter and state machine
 npm run build
-# Install the test browser if missing, then test a running local app:
-npx playwright install chromium
-PROTECT_URL=http://127.0.0.1:8794/protect npm run qa:protect
+npx playwright install chromium   # if missing
+npm run qa:lab         # lab QA at 390/768/1440 against the dev server
+npm run qa:protect     # drills QA (uses ?mode=drills)
 ```
+
+Live AI is offered only in development or builds made with `VITE_LAB_LIVE=1`.
+The browser calls same-origin `/lab-api/*`; Vite proxies it to `server.py` on
+127.0.0.1:8850. See [docs/LAB_INTEGRATION.md](docs/LAB_INTEGRATION.md).
 
 The production artifact is `frontend/dist/`, entry `protect.html`. A production
 host must serve `/protect` as that file and serve `/assets/`, `/favicon.svg` and
@@ -69,16 +75,16 @@ Do not replace the existing site's root deployment with this standalone folder.
 
 ## What works
 
-Three playable incidents, evidence inspection, hints, wrong-answer retry,
-safe-action control, accurate attempt counts, JSON debrief and reset.
-Another agent can read an exported challenge and submit a JSON proposal;
-the player must inspect evidence and explicitly confirm it.
+- Attack lab: five typed levels, scripted fixture transport (labelled, not AI),
+  typed live adapter with health/pending/failed/cancelled/completed states,
+  cancel and retry, stale-response rejection, config diff, before/after and
+  benign control. Tool effects are simulated strings.
+- Offline drills: three incidents, evidence inspection, hints, retry, safe-action
+  control, JSON debrief, and the `window.compassTraining` proposal protocol with
+  explicit human confirmation.
 
-What does not exist in the React frontend yet: connection to Vincent's API,
-live embedded Guild calls, a real security gateway, server persistence,
-authentication, and real quarantine/network isolation.
-The React game engine and coach are deterministic browser code. All incident data
-and consequences are simulated; the client includes the scenario answer keys.
+Not done: an authorized live model run, a public live deployment (needs the server
+controls in docs/LAB_INTEGRATION.md), embedded Guild calls, real isolation.
 
 ## Handoff
 
@@ -86,6 +92,7 @@ and consequences are simulated; the client includes the scenario answer keys.
 - [Backend handoff and proposed contract](docs/BACKEND_HANDOFF.md)
 - [Deployment and provenance](docs/DEPLOYMENT.md)
 - [90-second demonstration](docs/DEMO_90S.md)
+- [Attack lab integration status](docs/LAB_INTEGRATION.md)
 
 The frontend is an additive foundation for presenting Vincent's five-level
 attack -> patch -> replay experience. It does not replace his server or original

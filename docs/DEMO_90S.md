@@ -1,25 +1,24 @@
 # 90-second demonstration
 
-## Next integrated version: use only after verification
+## Attack lab (React, branch frontend/attack-patch-lab)
 
-For Vincent's attack/patch lab, the stronger recorded story is one complete
-before/after experiment, not a fast tour of all five levels:
+Record the real app at `/protect` (tab "Attack lab"). Say "scripted" while the
+header reads "Scripted fixture · not AI". Use the word "live" only if the header
+reads "Live run completed" after an authorized run on Vincent's server.
 
-- 0-10: "Can your team spot the moment an AI stops following the user and starts
-  following an attacker? COMPASS lets you test that safely."
-- 10-30: Open a synthetic poisoned-tool level, inspect the tool description,
-  send the attack, and show the actual returned reply and trace.
-- 30-48: "The tool description crossed a trust boundary. I will remove that
-  instruction and narrow what the agent can do." Show the configuration diff.
-- 48-68: Replay the identical input with fresh conversation history. Describe
-  the observed result honestly: blocked in this run, still vulnerable, or error.
-- 68-80: Ask the legitimate original question. "A fix only helps if useful
-  work still gets done." Show the benign control result.
-- 80-90: Show the before/after receipt and actual scan provenance if available.
-  "Live model responses, simulated tool effects. Practice, patch, verify."
+| Time | Click | Spoken English |
+| --- | --- | --- |
+| 0-8 | Open /protect, click the level "Poison a tool" | "Practice the decision before it becomes an incident. An AI agent reads its tools before it uses them. What if a tool lies?" |
+| 8-22 | "Start: load the attack", "Run attack" | "I ask for a focus tip. The reply dumps the agent's hidden rules. The trace shows the tool it read. Objective reached." |
+| 22-32 | "Open under the hood" | "Here is why: the tool description carries a hidden instruction. The rules and tools unlock only after the attack lands." |
+| 32-46 | "Remove" on get_focus_tip, "Replay exact attack", "Run benign control" | "The lazy fix is to delete the tool. The same attack no longer works, but the control fails: no focus tip. Removing the useful capability is not a win." |
+| 46-58 | "Restore original", "Apply suggested patch" | "Instead I rewrite the description and mark tool text as untrusted data. The diff shows exactly what changed." |
+| 58-70 | "Replay exact attack" | "Identical input, fresh history. Not observed in this run, and the before and after sit side by side." |
+| 70-80 | "Run benign control" | "The legitimate request still uses the tool and gets a tip. Security that keeps the work moving." |
+| 80-90 | Point at the connection label and footer | "Scripted here, and live against Vincent's server when approved. Tool effects are always simulated, and one run is evidence, not a guarantee." |
 
-This version is not yet integrated into the React app. Do not record a fixture
-as live, force a successful outcome, or imply one replay proves universal safety.
+Rehearse once with Restart this level. Do not record the fixture as live, force
+an outcome, or imply one replay proves universal safety.
 
 ## Existing deployed offline baseline
 

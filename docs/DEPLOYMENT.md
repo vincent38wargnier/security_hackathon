@@ -80,3 +80,20 @@ No secrets, credential configuration or real user records belong in this repo.
 - Older local release folders linked to the same service (compass-office-release,
   compass-original-release) must not be used for `railway up`.
 - Server-side requirements for public Live AI: issue #3.
+
+## Playground release, 2026-09-29 (verified)
+
+- Source: this repo `frontend/attack-patch-lab` `f2905dd` (PR #2), mirrored into
+  `axmatea/compass-horizon` branch `claude/protect-playground` commit `f545234`
+  (PR axmatea/compass-horizon#5, open: merge needs NAYL's review).
+- Method: clean `git archive f545234 compass` export, `railway up --ci` to service
+  `compass-web`. Deployment `ec6c19a5-4745-4c65-a64b-f859f44a9a6b`, SUCCESS, 20:14 UTC.
+- Verified live: `/protect` serves `protect-iyDvrpFa.js` + `protect-DswFgd5P.css`, identical
+  to the tested build. `/`, `/studio`, `/office`, `/presentation`, `/demo`, `/horizon`,
+  `/vision`, `/healthz` return 200 with unchanged asset hashes. CSP unchanged (`connect-src 'none'`).
+- Browser QA on https://mycompass.world/protect: 24 game checks at 390/768/1440 (typed attack,
+  real clipboard paste, planted tool text, own patch, probe, hints, over-blocking caught,
+  escaping) and the drills QA passed. Zero console errors, zero external or API requests.
+- Until PR #5 merges, compass-horizon `main` still holds the previous lab: a deploy from
+  main would bring back the older `/protect` (not a broken page). The legacy
+  `axmatea/compass` trigger risk above still applies.

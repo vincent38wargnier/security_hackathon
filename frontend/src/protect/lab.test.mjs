@@ -207,6 +207,14 @@ test('scan report parser follows server.py 8bde0d2 and rejects foreign shapes', 
   const real = { engine: 'Semgrep', target: 'the scanned codebase', findings: [{ sev: 'critical', title: 'The server runs code it was handed', why: 'w', rule: 'exec-detected', count: 2, sample: 'a.py:3' }], score: 4 };
   assert.deepEqual(parseScan(real).findings[0].rule, 'exec-detected');
   assert.equal(parseScan({ ...real, score: 'x' }).score, null);
+  assert.equal(parseScan(real).status, 'unknown', 'legacy responses are not treated as completed');
+  assert.equal(parseScan(real).score, null, 'no score without an explicit completed status');
+  assert.equal(parseScan({ engine: 'Semgrep', target: 't', findings: [], score: 10 }).score, null, 'missing-report legacy output never shows 10/10');
+  assert.equal(parseScan({ ...real, status: 'completed' }).score, 4);
+  assert.equal(parseScan({ status: 'missing', engine: 'Semgrep', target: 't', score: 10 }).score, null);
+  assert.equal(parseScan({ status: 'failed', engine: 'Semgrep', target: 't', error: 'token=abcdefghijkl bad' }).error.includes('abcdefghijkl'), false);
+  assert.throws(() => parseScan({ ...real, status: 'green' }));
+  assert.throws(() => parseScan({ status: 'completed', engine: 'Semgrep', target: 't' }));
   assert.throws(() => parseScan({ findings: [] }));
   assert.throws(() => parseScan({ ...real, findings: [{ sev: 'urgent', title: 't' }] }));
   const calls = [];

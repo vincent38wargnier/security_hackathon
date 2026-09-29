@@ -165,8 +165,10 @@ function ScanReportPanel({ transport }: { transport: LabTransport }) {
     {loading && <p className="lab-muted">Loading report…</p>}
     {error && <p className="lab-muted">Not available: {error}</p>}
     {report && <>
-      <p className="lab-scan-meta"><strong>Engine: {report.engine}</strong> · Target: {report.target}{report.score !== null && report.findings.length > 0 && <> · Server score {report.score}/10 (hackathon scorer weights, codebase not this agent)</>}</p>
-      {report.findings.length === 0 ? <p className="lab-muted">No findings were returned. Treat this as unknown, not clean.</p> : <ul>{report.findings.map(f => <li key={f.rule || f.title}><span className={`lab-sev sev-${f.sev}`}>{f.sev}</span><div><strong>{f.title}{f.count > 1 ? ` ×${f.count}` : ''}</strong><p>{f.why}</p>{f.sample && <code>{f.sample}</code>}</div></li>)}</ul>}
+      <p className="lab-scan-meta" data-testid="lab-scan-status"><strong>{report.status === 'completed' ? 'Scan completed' : report.status === 'missing' ? 'No report file' : report.status === 'failed' ? 'Scan failed' : 'Status not reported'}</strong> · Engine: {report.engine} · Target: {report.target}{report.commit && ` · Commit ${report.commit}`}{report.scannedAt && ` · ${report.scannedAt}`}{report.score !== null && ` · Server score ${report.score}/10 (hackathon scorer weights, codebase not this agent)`}</p>
+      {report.status === 'failed' && report.error && <p className="lab-muted">{report.error}</p>}
+      {report.findings.length > 0 ? <ul>{report.findings.map(f => <li key={f.rule || f.title}><span className={`lab-sev sev-${f.sev}`}>{f.sev}</span><div><strong>{f.title}{f.count > 1 ? ` ×${f.count}` : ''}</strong><p>{f.why}</p>{f.sample && <code>{f.sample}</code>}</div></li>)}</ul>
+        : <p className="lab-muted">{report.status === 'completed' ? 'The completed scan returned no mapped findings. That covers only its rules and target, not prompt-injection safety.' : 'No findings shown. Without a completed scan this is unknown, not clean.'}</p>}
     </>}
   </details>;
 }

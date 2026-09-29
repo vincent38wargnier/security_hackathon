@@ -20,7 +20,10 @@ export type Health =
   | { state: 'key-configured'; model: string };
 
 export type ScanFinding = { sev: 'critical' | 'high' | 'medium' | 'low'; title: string; why: string; rule: string; count: number; sample: string };
-export type ScanReport = { engine: string; target: string; findings: ScanFinding[]; score: number | null };
+// Proposed contract (docs/LAB_INTEGRATION.md): status completed | missing | failed. Legacy responses
+// without status are 'unknown'. Only 'completed' may present empty findings or a score.
+export type ScanStatus = 'completed' | 'missing' | 'failed' | 'unknown';
+export type ScanReport = { status: ScanStatus; engine: string; target: string; findings: ScanFinding[]; score: number | null; error: string; scannedAt: string; commit: string };
 
 export interface LabTransport {
   readonly source: RunSource;
@@ -29,20 +32,24 @@ export interface LabTransport {
   scan?(signal?: AbortSignal): Promise<ScanReport>;
 }
 
-// GET /api/scan (server.py 8bde0d2): {engine, target, findings:[{sev,title,why,rule,count,sample}], score}.
-// It reads an existing report file; an empty list can also mean "no report", never "clean".
+// GET /api/scan. server.py 8bde0d2 returns {engine, target, findings, score} and reports a missing
+// file as findings: [] with score 10. Without an explicit status: 'completed' the UI shows no score
+// and never presents an empty list as clean.
 export function parseScan(value: unknown): ScanReport {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Scan response was not a JSON object.');
   const r = value as Record<string, unknown>;
-  if (typeof r.engine !== 'string' || typeof r.target !== 'string' || !Array.isArray(r.findings)) throw new Error('Unexpected scan response shape.');
+  if (r.status !== undefined && r.status !== 'completed' && r.status !== 'missing' && r.status !== 'failed') throw new Error('Unknown scan status.');
+  const status: ScanStatus = r.status === undefined ? 'unknown' : r.status as ScanStatus;
+  if (typeof r.engine !== 'string' || typeof r.target !== 'string') throw new Error('Unexpected scan response shape.');
+  if ((status === 'completed' || status === 'unknown') && !Array.isArray(r.findings)) throw new Error('Scan response has no findings list.');
   const sevs = ['critical', 'high', 'medium', 'low'];
-  const findings = r.findings.slice(0, 40).map(f => {
+  const findings = (Array.isArray(r.findings) ? r.findings : []).slice(0, 40).map(f => {
     const x = (f ?? {}) as Record<string, unknown>;
     if (typeof x.sev !== 'string' || !sevs.includes(x.sev) || typeof x.title !== 'string') throw new Error('Scan finding is malformed.');
     return { sev: x.sev as ScanFinding['sev'], title: x.title.slice(0, 200), why: text(x.why, 400), rule: text(x.rule, 120), count: typeof x.count === 'number' && Number.isFinite(x.count) ? Math.max(0, Math.round(x.count)) : 0, sample: text(x.sample, 200) };
   });
-  const score = typeof r.score === 'number' && Number.isFinite(r.score) ? Math.min(10, Math.max(0, r.score)) : null;
-  return { engine: r.engine.slice(0, 60), target: r.target.slice(0, 120), findings, score };
+  const score = status === 'completed' && typeof r.score === 'number' && Number.isFinite(r.score) ? Math.min(10, Math.max(0, r.score)) : null;
+  return { status, engine: r.engine.slice(0, 60), target: r.target.slice(0, 120), findings, score, error: typeof r.error === 'string' ? sanitizeError(r.error) : '', scannedAt: text(r.scanned_at, 40), commit: text(r.commit, 40) };
 }
 
 export function validateRequest(request: ChatRequest): string | null {

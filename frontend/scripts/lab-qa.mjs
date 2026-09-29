@@ -125,7 +125,8 @@ try {
       await shot('08-live-gate');
       await page.locator('.lab-scan summary').click();
       await page.waitForFunction(() => /Engine:|Not available/.test(document.querySelector('.lab-scan').textContent));
-      assert.equal(/Server score/.test(await page.locator('.lab-scan').textContent()), false, 'no score without findings');
+      assert.equal(/Server score/.test(await page.locator('.lab-scan').textContent()), false, 'no score without a completed status');
+      assert.match(await page.locator('.lab-scan').textContent(), /Status not reported|No report file|Not available/);
       await click('lab-source-fixture');
     }
     // Offline drills remain available and intact.

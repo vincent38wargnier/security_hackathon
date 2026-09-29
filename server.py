@@ -175,7 +175,7 @@ class H(BaseHTTPRequestHandler):
 
 PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Prompt Injection Playground</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -354,6 +354,43 @@ textarea:focus,input:focus{outline:none}
 .find .fl{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:4px}
 
 @media(max-width:940px){.wrap{grid-template-columns:1fr;grid-template-rows:minmax(0,42%) minmax(0,58%)}.col.left{border-right:0;border-bottom:1px solid var(--line)}.msg,.trace{max-width:94%}.welcome .steps{flex-direction:column}}
+@media(max-width:940px){body:not(.editing) .wrap{grid-template-rows:minmax(0,1fr)}}
+/* phone: one thumb, one column, big targets, rules editor as a bottom sheet */
+@media(max-width:640px){
+ body{height:100dvh;font-size:15px}
+ header{padding:10px 14px;gap:8px}
+ .brand h1{font-size:15px;white-space:nowrap}
+ .brand .mark{width:28px;height:28px}
+ .sandbox,.status{display:none}
+ #scanBtn{font-size:0;padding:8px 11px}#scanBtn::before{content:'🔒';font-size:17px}
+ .path{padding:8px 12px;gap:7px}.path .lbl{display:none}
+ .lv{padding:10px 13px;font-size:13.5px}
+ .wrap{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important}
+ .phead{padding:8px 12px 6px}.phead h2{display:none}
+ .obj{margin:0 12px 8px;padding:14px}
+ .obj .goal{font-size:16.5px;line-height:1.4}
+ .obj .row{flex-direction:column;gap:8px}
+ .obj .row .btn{width:100%;padding:14px;font-size:16px}
+ .btn{min-height:44px}
+ .chat{padding:8px 12px 12px;gap:10px}
+ .msg{max-width:92%;font-size:15px}
+ .trace{max-width:100%}
+ .result h4{font-size:15.5px}
+ .hintcard .btn{width:100%;padding:13px;font-size:15px}
+ .composer{padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+ .composer textarea{font-size:16px}
+ body.editing .col.left{position:fixed;left:0;right:0;bottom:0;height:46dvh;z-index:120;background:var(--surface);
+  border:0;border-radius:18px 18px 0 0;box-shadow:0 -12px 40px oklch(0.25 0.04 265 / .2);animation:rise .25s var(--ease) both}
+ body.editing .col.left .phead{padding:14px 16px 6px}
+ body.editing .col.left .phead h2{display:block}
+ body.editing .composer{display:none}
+ body.editing .path,body.editing .col.right .phead{display:none}
+ body.editing .col.right{padding-bottom:46dvh}
+ body.editing .obj .row{flex-direction:row}
+ body.editing .obj .row .btn{padding:11px 8px;font-size:14.5px}
+ .welcome{padding:22px 18px}.welcome h2{font-size:23px}
+ .modal{padding:18px;max-height:88dvh}
+}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
 </style></head><body>
 
@@ -552,7 +589,7 @@ function flowViz(){if(!level)return null;const d=document.createElement('div');d
  d.innerHTML=`<div class="node outside"><div class="cap">📄 Attacker text</div><div class="txt">hidden order slips in</div></div><div class="arrow">➜</div><div class="node ai"><div class="cap">🤖 The AI</div><div class="txt">may treat it as a real command</div></div>`;return d;}
 
 async function runAttack(msg){
- lastAttack=msg;
+ lastAttack=msg;history=[]; // each attempt is independent: a past refusal must not make retries harder
  const um=document.createElement('div');um.className='msg user';um.textContent=msg.length>170?msg.slice(0,170)+' …':msg;$('#chat').appendChild(um);
  history.push({role:'user',content:msg});scroll();
  const wait=document.createElement('div');wait.className='msg bot';wait.innerHTML='<span class="spin"><i></i><i></i><i></i></span>';$('#chat').appendChild(wait);scroll();

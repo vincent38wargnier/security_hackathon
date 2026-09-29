@@ -66,3 +66,17 @@ No secrets, credential configuration or real user records belong in this repo.
 - Live AI is disabled on the public page. No lab server is exposed, no paid calls.
 - Caveat: the Railway service still has the legacy `axmatea/compass/main` trigger;
   a push there can overwrite this CLI release.
+
+## Rollback risk (checked 2026-09-29)
+
+- `axmatea/compass-horizon` main now contains the published `/protect` (PR #4 merged
+  as `9e2e932`; deployed `4c61ed5` is in its history and differs only in a QA script).
+- The Railway service `compass-web` still lists **`axmatea/compass`** as its source repo.
+  Its main (`3e1c1d4`) has no `protect.html`. A push there or a "redeploy from source"
+  would publish a site without `/protect` and without the newer pages.
+- Fix needs owner approval (it changes the deploy source of the whole site): point the
+  service at `axmatea/compass-horizon`, root directory `compass`, branch `main`; or
+  disconnect the repo trigger and keep CLI releases from compass-horizon main.
+- Older local release folders linked to the same service (compass-office-release,
+  compass-original-release) must not be used for `railway up`.
+- Server-side requirements for public Live AI: issue #3.

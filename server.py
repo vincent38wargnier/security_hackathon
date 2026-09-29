@@ -16,11 +16,11 @@ to the browser. Educational; all notes/events are pretend.
 import json
 import os
 
-import urllib.request
-import urllib.error
+import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-SCW_URL = "https://api.scaleway.ai/v1/chat/completions"
+SCW_HOST = "api.scaleway.ai"
+SCW_PATH = "/v1/chat/completions"
 MODEL = os.getenv("VULN_LAB_MODEL", "gemma-4-26b-a4b-it")
 PORT = int(os.getenv("VULN_LAB_PORT", "8850"))
 MAX_TOOL_HOPS = 4
@@ -37,17 +37,28 @@ def _load_key():
 SCW_KEY = _load_key()
 
 
+class ProviderError(Exception):
+    pass
+
+
 def scw_chat(messages, tools=None, max_tokens=1200):
     body = {"model": MODEL, "messages": messages, "max_tokens": max_tokens}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
-    req = urllib.request.Request(
-        SCW_URL, data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {SCW_KEY}",
-                 "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=90) as r:
-        return json.loads(r.read().decode())
+    # Fixed host and path: request data can never change where this call goes.
+    conn = http.client.HTTPSConnection(SCW_HOST, timeout=90)
+    try:
+        conn.request("POST", SCW_PATH, body=json.dumps(body).encode(),
+                     headers={"Authorization": f"Bearer {SCW_KEY}",
+                              "Content-Type": "application/json"})
+        r = conn.getresponse()
+        raw = r.read().decode()
+        if r.status >= 400:
+            raise ProviderError(f"Scaleway {r.status}: {raw[:400]}")
+        return json.loads(raw)
+    finally:
+        conn.close()
 
 
 def run_agent(system, history, tools_def):
@@ -166,9 +177,8 @@ class H(BaseHTTPRequestHandler):
             reply, trace = run_agent(req.get("system", ""),
                                      req.get("messages", []), req.get("tools", []))
             self._send(200, json.dumps({"reply": reply, "trace": trace}))
-        except urllib.error.HTTPError as e:
-            self._send(502, json.dumps(
-                {"error": f"Scaleway {e.code}: {e.read().decode()[:400]}"}))
+        except ProviderError as e:
+            self._send(502, json.dumps({"error": str(e)}))
         except Exception as e:
             self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}))
 

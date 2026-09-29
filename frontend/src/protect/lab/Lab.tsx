@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createHttpTransport } from './api';
-import type { Health, LabTransport } from './api';
+import type { Health, LabTransport, ScanReport } from './api';
 import { createFixtureTransport } from './fixture';
 import { configKey, createLab, diffConfig, labReducer, labSummary, levelOf, planRun, runById } from './lab-model';
 import type { LabState, Run, RunKind } from './lab-model';
@@ -16,13 +16,15 @@ export const LIVE_ALLOWED = import.meta.env.DEV || import.meta.env.VITE_LAB_LIVE
 type LabWindow = Window & { render_lab_to_text?: () => string };
 type HealthView = Health | { state: 'checking' };
 
-const STEPS: readonly string[] = ['Attack', 'Patch', 'Replay', 'Control'];
+const STEPS: readonly string[] = ['Inspect', 'Attack', 'Observe', 'Patch', 'Replay', 'Explain'];
+// Inspect -> Attack -> Observe -> Patch -> Replay (exact replay + benign control) -> Explain.
 function currentStep(state: LabState) {
-  if (state.stage === 'attack') return 0;
-  if (state.stage === 'patch') return configKey(state.config) === runById(state, state.baselineRunId)?.configKey ? 1 : 2;
-  if (state.stage === 'control') return 3;
-  return 4;
+  if (state.stage === 'attack') return state.runs.length === 0 && !state.draft.trim() ? 0 : state.runs.some(r => r.status !== 'pending') ? 2 : 1;
+  if (state.stage === 'patch') return configKey(state.config) === runById(state, state.baselineRunId)?.configKey ? 3 : 4;
+  if (state.stage === 'control') return 4;
+  return 5;
 }
+const desktop = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 761px)').matches;
 
 const kindLabel: Record<RunKind, string> = { attack: 'Attack', replay: 'Exact replay', control: 'Benign control' };
 
@@ -129,11 +131,51 @@ function Compare({ state }: { state: LabState }) {
   </section>;
 }
 
+function Explain({ state }: { state: LabState }) {
+  const level = levelOf(state);
+  const baseline = runById(state, state.baselineRunId);
+  const replay = runById(state, state.cleanReplayRunId);
+  const control = state.runs.filter(r => r.kind === 'control' && r.control?.passed).at(-1);
+  if (state.stage !== 'done' || !baseline || !replay || !control) return null;
+  const o = baseline.observation;
+  return <section className="lab-explain" aria-labelledby="explain-heading" data-testid="lab-explain">
+    <div className="lab-section-head"><h3 id="explain-heading">What happened</h3><span className="eyebrow">{baseline.source === 'live' ? 'Live model · this session' : 'Scripted fixture · this session'}</span></div>
+    <dl>
+      <div><dt>Before</dt><dd>The agent {o && o.kind === 'violation' ? o.did : 'crossed the boundary'}.</dd></div>
+      <div><dt>Why</dt><dd>{level.concept}</dd></div>
+      <div><dt>Changed</dt><dd>{diffConfig(baseline.config, replay.config).map(c => c.label).join(' · ') || 'Configuration edited'}</dd></div>
+      <div><dt>After</dt><dd>Same input: not observed in this run. Benign control: {level.control.purpose.toLowerCase()}</dd></div>
+    </dl>
+    <p className="lab-fine">One run per step. A different wording or model sample can still get through.</p>
+  </section>;
+}
+
+function ScanReportPanel({ transport }: { transport: LabTransport }) {
+  const [report, setReport] = useState<ScanReport | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const load = () => {
+    if (!transport.scan || loading) return;
+    setLoading(true); setError('');
+    transport.scan().then(setReport, e => setError(e instanceof Error ? e.message : 'Scan report unavailable.')).finally(() => setLoading(false));
+  };
+  return <details className="lab-scan" onToggle={e => { if ((e.currentTarget as HTMLDetailsElement).open && !report) load(); }}>
+    <summary>Real code scan report from the lab server</summary>
+    <p className="lab-muted">Reads an existing report file on Vincent's server; it does not start a scan. An empty list can mean "no report", not "no vulnerabilities".</p>
+    {loading && <p className="lab-muted">Loading report…</p>}
+    {error && <p className="lab-muted">Not available: {error}</p>}
+    {report && <>
+      <p className="lab-scan-meta"><strong>Engine: {report.engine}</strong> · Target: {report.target}{report.score !== null && report.findings.length > 0 && <> · Server score {report.score}/10 (hackathon scorer weights, codebase not this agent)</>}</p>
+      {report.findings.length === 0 ? <p className="lab-muted">No findings were returned. Treat this as unknown, not clean.</p> : <ul>{report.findings.map(f => <li key={f.rule || f.title}><span className={`lab-sev sev-${f.sev}`}>{f.sev}</span><div><strong>{f.title}{f.count > 1 ? ` ×${f.count}` : ''}</strong><p>{f.why}</p>{f.sample && <code>{f.sample}</code>}</div></li>)}</ul>}
+    </>}
+  </details>;
+}
+
 export default function Lab({ nav }: { nav: ReactNode }) {
   const [state, dispatch] = useReducer(labReducer, undefined, () => createLab('fixture'));
   const [health, setHealth] = useState<HealthView | null>(null);
   const [consent, setConsent] = useState(false);
-  const [hoodOpen, setHoodOpen] = useState(false);
+  const [hoodOpen, setHoodOpen] = useState(desktop);
   const [toast, setToast] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const resultRef = useRef<HTMLElement>(null);
@@ -147,7 +189,7 @@ export default function Lab({ nav }: { nav: ReactNode }) {
   const liveCompleted = state.runs.some(r => r.source === 'live' && r.status === 'completed');
   const allDone = LAB_LEVELS.every(l => l.id in state.completed);
 
-  useEffect(() => { abortRef.current?.abort(); abortRef.current = null; }, [state.epoch]);
+  useEffect(() => { abortRef.current?.abort(); abortRef.current = null; setHoodOpen(desktop()); }, [state.epoch]);
   useEffect(() => () => abortRef.current?.abort(), []);
   useEffect(() => {
     if (state.source !== 'live') { setHealth(null); return; }
@@ -156,7 +198,7 @@ export default function Lab({ nav }: { nav: ReactNode }) {
     transport.health(ac.signal).then(h => { if (!ac.signal.aborted) setHealth(h); });
     return () => ac.abort();
   }, [state.source, transport]);
-  useEffect(() => { if (state.stage === 'patch' && step === 1) setHoodOpen(true); }, [state.stage, step]);
+  useEffect(() => { if (state.stage === 'patch' && step === 3) setHoodOpen(true); }, [state.stage, step]);
   // On phones the reply sits below the brief: bring the settled result into view once.
   const settledId = latest && latest.status !== 'pending' ? latest.id : null;
   useEffect(() => {
@@ -207,14 +249,15 @@ export default function Lab({ nav }: { nav: ReactNode }) {
     <header className="masthead"><a className="wordmark" href="#lab" aria-label="COMPASS attack lab"><span className="compass-mark" aria-hidden="true">✳</span> COMPASS</a>{nav}<span className="simulation-badge"><span /> TRAINING SIMULATION</span>
       <div className="lab-source" role="group" aria-label="Agent source">
         <button aria-pressed={state.source === 'fixture'} data-testid="lab-source-fixture" onClick={() => dispatch({ type: 'source', source: 'fixture' })}>Scripted</button>
-        {LIVE_ALLOWED && <button aria-pressed={state.source === 'live'} data-testid="lab-source-live" onClick={() => dispatch({ type: 'source', source: 'live' })}>Live AI</button>}
+        {LIVE_ALLOWED ? <button aria-pressed={state.source === 'live'} data-testid="lab-source-live" onClick={() => dispatch({ type: 'source', source: 'live' })}>Live AI</button> : <button disabled aria-describedby="live-off-note" title="Live AI stays off on the public site until the lab server enforces access, rate and spend limits.">Live AI</button>}
       </div>
       <span className={`lab-conn tone-${connection.tone}`} data-testid="lab-connection" role="status"><span aria-hidden="true" />{connection.text}</span>
     </header>
     <main id="lab">
-      <div className="lab-title"><div><p className="eyebrow">Attack · Patch · Replay · Control</p><h1>Practice the decision before it becomes an incident<span>.</span></h1></div>
-        <ol className="lab-steps" aria-label="Loop progress">{STEPS.map((label, i) => <li key={label} className={i < step ? 'is-done' : i === step ? 'is-current' : ''} aria-current={i === step ? 'step' : undefined}><span>{i < step ? '✓' : `0${i + 1}`}</span>{label}</li>)}</ol></div>
+      <div className="lab-title"><div><p className="eyebrow">Inspect · Attack · Observe · Patch · Replay · Explain</p><h1>Practice the decision before it becomes an incident<span>.</span></h1></div>
+        <ol className="lab-steps" aria-label="Loop progress">{STEPS.map((label, i) => <li key={label} className={i < step ? 'is-done' : i === step ? 'is-current' : ''} aria-current={i === step ? 'step' : undefined}><span aria-hidden="true">{i < step ? '✓' : i + 1}</span><b>{label}</b></li>)}</ol></div>
       <nav className="lab-levels" aria-label="Levels">{LAB_LEVELS.map((l, i) => <button key={l.id} data-testid={`lab-level-${l.id}`} aria-current={i === state.levelIndex ? 'true' : undefined} className={l.id in state.completed ? 'is-done' : ''} onClick={() => dispatch({ type: 'select', index: i })}><span className="eyebrow">{l.id in state.completed ? `✓ Patched · ${state.completed[l.id] === 'live' ? 'live' : 'scripted'}` : `Level 0${i + 1}`}</span><strong>{l.title}</strong></button>)}</nav>
+      {!LIVE_ALLOWED && <p id="live-off-note" className="lab-live-off">Scripted mode on this public page. Live AI stays off until the lab server enforces access, rate and spend limits.</p>}
       {state.source === 'live' && <div className="lab-live-gate" data-testid="lab-live-gate"><p><strong>Live AI</strong> sends this synthetic level to the model on Vincent's lab server. One run can make up to five billable model calls. Results vary between runs.</p><label><input type="checkbox" data-testid="lab-consent" checked={consent} onChange={e => setConsent(e.target.checked)} /> I have approval to spend on this session</label>{health?.state === 'disconnected' && <p className="lab-muted">Not connected: {health.detail} Scripted mode is still available; it is never used silently.</p>}</div>}
 
       <div className={`lab-grid ${latest ? 'has-run' : ''}`}>
@@ -235,6 +278,7 @@ export default function Lab({ nav }: { nav: ReactNode }) {
             {latest.result?.status === 'completed' ? <pre className="lab-reply" data-testid="lab-reply">{latest.result.reply}</pre> : <p className="lab-muted lab-reply-empty">{latest.status === 'pending' ? 'Waiting for the answer…' : 'No reply recorded.'}</p>}
             {(() => { const o = observationText(latest); return <div className={`lab-verdict tone-${o.tone}`} data-testid="lab-verdict"><strong>{o.title}</strong><p>{o.detail}</p></div>; })()}
           </> : <p className="lab-muted lab-reply-empty">Run the attack to see the actual reply and tool trace.</p>}
+          <Explain state={state} />
           <Compare state={state} />
           {allDone && <div className="lab-summary" data-testid="lab-summary"><strong>All five levels patched in this session.</strong><p>Each result is one heuristic run ({[...new Set(Object.values(state.completed))].map(s => s === 'live' ? 'live model' : 'scripted fixture').join(' + ')}). It is practice evidence, not a security guarantee.</p></div>}
         </section>
@@ -250,6 +294,7 @@ export default function Lab({ nav }: { nav: ReactNode }) {
         </div>
         {state.stage === 'attack' && (toast || state.notice) && <p className="lab-action-note wide" role="status" aria-live="polite">{toast || state.notice}</p>}
       </div>
+      {state.source === 'live' && <ScanReportPanel transport={transport} />}
       <div className="lab-footer-row"><button className="text-button" data-testid="lab-reset" onClick={() => dispatch({ type: 'resetLevel' })}>Restart this level</button><button className="text-button" onClick={() => dispatch({ type: 'resetAll' })}>Reset the whole lab</button></div>
     </main>
     <footer className="desk-footer"><p>COMPASS / Attack lab<span>Training simulation. Tool effects are simulated strings. Verdicts are single-run heuristics ported from the lab server.</span></p><p><span>Levels ported from server.py by Vincent. Scripted mode is local and not AI.</span></p></footer>

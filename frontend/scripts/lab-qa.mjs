@@ -30,6 +30,7 @@ try {
     await page.goto(url);
     await page.waitForFunction(() => typeof window.render_lab_to_text === 'function');
     assert.equal((await lab()).stage, 'attack');
+    assert.equal((await lab()).step, 'Inspect');
     assert.match(await page.getByTestId('lab-connection').textContent(), /Scripted fixture/);
     await shot('01-start');
     // Level 1, keyboard start: focus the primary action and press Enter.
@@ -58,6 +59,8 @@ try {
     s = await lab();
     assert.equal(s.stage, 'done');
     assert.match(await page.getByTestId('lab-control-result').textContent(), /Legitimate work observed/);
+    assert.match(await page.getByTestId('lab-explain').textContent(), /not observed in this run/);
+    assert.equal(s.step, 'Explain');
     await shot('04-done');
     // Level 2: removing the tool is not a win.
     await click('lab-next');
@@ -118,6 +121,9 @@ try {
       await click('lab-attack');
       assert.equal((await lab()).currentRuns.length, 0, 'no live run when the server is not ready');
       await shot('08-live-gate');
+      await page.locator('.lab-scan summary').click();
+      await page.waitForFunction(() => /Engine:|Not available/.test(document.querySelector('.lab-scan').textContent));
+      assert.equal(/Server score/.test(await page.locator('.lab-scan').textContent()), false, 'no score without findings');
       await click('lab-source-fixture');
     }
     // Offline drills remain available and intact.

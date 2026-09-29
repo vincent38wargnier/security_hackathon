@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { LAB_LEVELS } from './lab/levels.ts';
 import { createLab, labReducer, planRun, configKey, diffConfig, runById } from './lab/lab-model.ts';
 import { verdict, observe, isPoisoned } from './lab/verdict.ts';
-import { createHttpTransport, parseChatResponse, sanitizeError, validateRequest, LAB_API_BASE } from './lab/api.ts';
+import { createHttpTransport, parseChatResponse, parseScan, sanitizeError, validateRequest, LAB_API_BASE } from './lab/api.ts';
 import { createFixtureTransport, scriptedReply } from './lab/fixture.ts';
 
 const completed = (reply, trace = [], extra = {}) => ({ status: 'completed', source: 'fixture', reply, trace, ms: 5, ...extra });
@@ -201,4 +201,16 @@ test('config diff names what the patch changed', () => {
   assert.ok(labels.some(l => /System rules/.test(l)));
   assert.ok(labels.includes('Tool cleanup_calendar removed'));
   assert.notEqual(configKey(level.config), configKey(level.fix.apply(level.config)));
+});
+
+test('scan report parser follows server.py 8bde0d2 and rejects foreign shapes', async () => {
+  const real = { engine: 'Semgrep', target: 'the scanned codebase', findings: [{ sev: 'critical', title: 'The server runs code it was handed', why: 'w', rule: 'exec-detected', count: 2, sample: 'a.py:3' }], score: 4 };
+  assert.deepEqual(parseScan(real).findings[0].rule, 'exec-detected');
+  assert.equal(parseScan({ ...real, score: 'x' }).score, null);
+  assert.throws(() => parseScan({ findings: [] }));
+  assert.throws(() => parseScan({ ...real, findings: [{ sev: 'urgent', title: 't' }] }));
+  const calls = [];
+  const report = await createHttpTransport(async url => { calls.push(url); return jsonResponse(real); }).scan();
+  assert.equal(calls[0], `${LAB_API_BASE}/scan`);
+  assert.equal(report.engine, 'Semgrep');
 });

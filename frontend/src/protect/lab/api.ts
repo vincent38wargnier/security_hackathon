@@ -19,10 +19,30 @@ export type Health =
   | { state: 'no-key'; model: string }
   | { state: 'key-configured'; model: string };
 
+export type ScanFinding = { sev: 'critical' | 'high' | 'medium' | 'low'; title: string; why: string; rule: string; count: number; sample: string };
+export type ScanReport = { engine: string; target: string; findings: ScanFinding[]; score: number | null };
+
 export interface LabTransport {
   readonly source: RunSource;
   health(signal?: AbortSignal): Promise<Health>;
   chat(request: ChatRequest, signal: AbortSignal): Promise<ChatResult>;
+  scan?(signal?: AbortSignal): Promise<ScanReport>;
+}
+
+// GET /api/scan (server.py 8bde0d2): {engine, target, findings:[{sev,title,why,rule,count,sample}], score}.
+// It reads an existing report file; an empty list can also mean "no report", never "clean".
+export function parseScan(value: unknown): ScanReport {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Scan response was not a JSON object.');
+  const r = value as Record<string, unknown>;
+  if (typeof r.engine !== 'string' || typeof r.target !== 'string' || !Array.isArray(r.findings)) throw new Error('Unexpected scan response shape.');
+  const sevs = ['critical', 'high', 'medium', 'low'];
+  const findings = r.findings.slice(0, 40).map(f => {
+    const x = (f ?? {}) as Record<string, unknown>;
+    if (typeof x.sev !== 'string' || !sevs.includes(x.sev) || typeof x.title !== 'string') throw new Error('Scan finding is malformed.');
+    return { sev: x.sev as ScanFinding['sev'], title: x.title.slice(0, 200), why: text(x.why, 400), rule: text(x.rule, 120), count: typeof x.count === 'number' && Number.isFinite(x.count) ? Math.max(0, Math.round(x.count)) : 0, sample: text(x.sample, 200) };
+  });
+  const score = typeof r.score === 'number' && Number.isFinite(r.score) ? Math.min(10, Math.max(0, r.score)) : null;
+  return { engine: r.engine.slice(0, 60), target: r.target.slice(0, 120), findings, score };
 }
 
 export function validateRequest(request: ChatRequest): string | null {
@@ -93,6 +113,11 @@ export function createHttpTransport(fetchImpl: FetchLike = (input, init) => fetc
       } catch (error) {
         return { state: 'disconnected', detail: sanitizeError(error instanceof Error ? error.message : String(error)) };
       }
+    },
+    async scan(signal) {
+      const response = await fetchImpl(`${LAB_API_BASE}/scan`, { method: 'GET', signal, credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`Scan report answered HTTP ${response.status}.`);
+      return parseScan(await readBoundedJSON(response));
     },
     async chat(request, signal) {
       const started = now();

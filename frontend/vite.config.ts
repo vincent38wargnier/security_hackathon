@@ -15,7 +15,7 @@ function trainingRoute(req: IncomingMessage, _res: ServerResponse, next: () => v
 // only ever calls same-origin /lab-api/*. No key or upstream URL is configurable from the client.
 const labPort = Number(process.env.VULN_LAB_PORT || 8850);
 if (!Number.isInteger(labPort) || labPort < 1024 || labPort > 65535) throw new Error('VULN_LAB_PORT must be a local port number.');
-const labProxy = { '/lab-api': { target: `http://127.0.0.1:${labPort}`, changeOrigin: false, rewrite: (path: string) => path.replace(/^\/lab-api(?=\/(?:health|chat)$)/, '/api') } };
+const labProxy = { '/lab-api': { target: `http://127.0.0.1:${labPort}`, changeOrigin: false, rewrite: (path: string) => path.replace(/^\/lab-api(?=\/(?:health|chat|scan)$)/, '/api') } };
 
 export default defineConfig({
   server: { proxy: labProxy },

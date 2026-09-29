@@ -1,24 +1,22 @@
 # 90-second demonstration
 
-## Attack lab (React, branch frontend/attack-patch-lab)
+## Attack lab (React main path)
 
-Record the real app at `/protect` (tab "Attack lab"). Say "scripted" while the
-header reads "Scripted fixture · not AI". Use the word "live" only if the header
-reads "Live run completed" after an authorized run on Vincent's server.
+Record `/protect`. The badge top right reads "Simulation" (pre-scripted, not a
+real model) or "Live AI". Say "simulation" unless the badge reads Live AI and a
+real answer came back. Nothing below needs Technical details, except 32-46.
 
-| Time | Click | Spoken English |
-| --- | --- | --- |
-| 0-8 | Open /protect, click the level "Poison a tool" | "Practice the decision before it becomes an incident. An AI agent reads its tools before it uses them. What if a tool lies?" |
-| 8-22 | "Start: load the attack", "Run attack" | "I ask for a focus tip. The reply dumps the agent's hidden rules. The trace shows the tool it read. Objective reached." |
-| 22-32 | "Open under the hood" | "Here is why: the tool description carries a hidden instruction. The rules and tools unlock only after the attack lands." |
-| 32-46 | "Remove" on get_focus_tip, "Replay exact attack", "Run benign control" | "The lazy fix is to delete the tool. The same attack no longer works, but the control fails: no focus tip. Removing the useful capability is not a win." |
-| 46-58 | "Restore original", "Apply suggested patch" | "Instead I rewrite the description and mark tool text as untrusted data. The diff shows exactly what changed." |
-| 58-70 | "Replay exact attack" | "Identical input, fresh history. Not observed in this run, and the before and after sit side by side." |
-| 70-80 | "Run benign control" | "The legitimate request still uses the tool and gets a tip. The Explain card says what happened, why, and what changed. Security that keeps the work moving." |
-| 80-90 | Point at the connection label and footer | "Scripted here, and live against Vincent's server when approved. Tool effects are always simulated, and one run is evidence, not a guarantee." |
+| Time | Click | What appears | Spoken English |
+| --- | --- | --- | --- |
+| 0-8 | Open `/protect`, pick "2. A tool with a hidden order" in Challenge | Card: situation, your move, a prefilled test message, "Test the agent" | "An AI helper reads its tools before using them. Someone hid an order inside one." |
+| 8-20 | "Test the agent" | The agent's answer and "It worked. It obeyed the order hidden in the tool's description..." | "I just ask for a focus tip. The helper leaks its secret rules." |
+| 20-30 | "Add protection" | One sentence: clean the tool's description, treat tool text as information | "The fix is one sentence, and it shows what will change." |
+| 30-44 | "Apply and test again" | Attack test: Blocked in this run. Normal task: Still works | "Same message, fresh conversation. The attack is blocked, and the helper still gives a tip." |
+| 44-62 | Optional: Technical details, "Remove" on get_focus_tip, "Test again" | Normal task: Broken by the protection | "Deleting the tool also stops the attack, but it breaks the job. That is not a win." |
+| 62-80 | "Restore original", close details, "Add protection", "Apply and test again", "Next challenge" | Challenge 3 of 5 | "Five challenges: leaked rules, poisoned tools, scam notes, stolen secrets, and destructive actions." |
+| 80-90 | Point at the badge and footer | "Simulation" | "Simulation today, Live AI on Vincent's server when approved. One test is evidence, not a guarantee." |
 
-Rehearse once with Restart this level. Do not record the fixture as live, force
-an outcome, or imply one replay proves universal safety.
+Rehearse once with "Start this challenge over". Never record the simulation as live.
 
 ## Existing deployed offline baseline
 

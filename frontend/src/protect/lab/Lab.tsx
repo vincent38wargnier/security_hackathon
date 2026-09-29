@@ -6,6 +6,7 @@ import { createFixtureTransport } from './fixture';
 import { configKey, createLab, diffConfig, labReducer, labSummary, levelOf, planRun, runById } from './lab-model';
 import type { LabState, Run, RunKind } from './lab-model';
 import { LAB_LEVELS } from './levels';
+import type { LabLevel } from './levels';
 import { DANGER, isPoisoned, WIN_LABEL } from './verdict';
 import type { Observation } from './verdict';
 import './lab.css';
@@ -82,27 +83,23 @@ function Trace({ run }: { run: Run | null }) {
   </section>;
 }
 
-function Hood({ state, dispatch, open, setOpen }: { state: LabState; dispatch: (a: Parameters<typeof labReducer>[1]) => void; open: boolean; setOpen: (v: boolean) => void }) {
+function Hood({ state, dispatch }: { state: LabState; dispatch: (a: Parameters<typeof labReducer>[1]) => void }) {
   const level = levelOf(state);
   const locked = state.stage === 'attack';
   const changes = diffConfig(level.config, state.config);
-  return <section className={`lab-hood ${open ? 'is-open' : ''}`} aria-labelledby="hood-heading">
-    <button className="lab-hood-toggle" aria-expanded={open} aria-controls="hood-body" onClick={() => setOpen(!open)} data-testid="lab-hood-toggle">
-      <span><span className="eyebrow">Under the hood</span><strong id="hood-heading">Agent rules and tools</strong></span>
-      <span className="lab-hood-meta">{changes.length ? `${changes.length} change${changes.length > 1 ? 's' : ''}` : locked ? 'Read-only' : 'Original'}<span aria-hidden="true">{open ? '−' : '+'}</span></span>
-    </button>
-    {open && <div id="hood-body" className="lab-hood-body">
-      <p className="lab-muted">{locked ? 'Read-only until your attack lands. Then you patch it here.' : 'Edit what the agent trusts or can do, then replay the exact attack.'}</p>
-      <label className="lab-field"><span>System rules</span><textarea data-testid="lab-system" value={state.config.system} readOnly={locked} rows={5} spellCheck={false} onChange={e => dispatch({ type: 'editSystem', text: e.target.value })} /></label>
+  return <section className="lab-hood" aria-labelledby="hood-heading">
+    <div className="lab-section-head"><h3 id="hood-heading">Agent rules and tools</h3><span className="eyebrow">{changes.length ? `${changes.length} change${changes.length > 1 ? 's' : ''}` : locked ? 'Read-only until the attack works' : 'Original'}</span></div>
+    <div className="lab-hood-body">
+      <label className="lab-field"><span>System rules</span><textarea data-testid="lab-system" value={state.config.system} readOnly={locked} rows={4} spellCheck={false} onChange={e => dispatch({ type: 'editSystem', text: e.target.value })} /></label>
       {state.config.tools.length === 0 ? <p className="lab-empty">No tools. This agent can only talk.</p> : state.config.tools.map((tool, i) => <article key={tool.name} className={`lab-tool ${isPoisoned(tool) ? 'is-poisoned' : ''}`}>
         <header><code>{tool.name}</code><span className="lab-badge">{tool.source === 'mcp' ? `MCP · ${tool.server ?? 'server'}` : 'tool'}</span>{isPoisoned(tool) && <span className="lab-badge risk">Hidden instruction</span>}{DANGER.test(tool.name) && <span className="lab-badge risk">Destructive</span>}
           {!locked && <button className="lab-remove" data-testid={`lab-remove-${tool.name}`} onClick={() => dispatch({ type: 'removeTool', index: i })} aria-label={`Remove tool ${tool.name}`}>Remove</button>}</header>
         <label className="lab-field"><span>Description (the agent reads this first)</span><textarea data-testid={`lab-desc-${tool.name}`} value={tool.description} readOnly={locked} rows={2} onChange={e => dispatch({ type: 'editTool', index: i, field: 'description', value: e.target.value })} /></label>
         <label className="lab-field"><span>Returned content (third-party data)</span><textarea value={tool.returns} readOnly={locked} rows={2} onChange={e => dispatch({ type: 'editTool', index: i, field: 'returns', value: e.target.value })} /></label>
       </article>)}
-      {!locked && <div className="lab-row"><button className="secondary-button" data-testid="lab-apply-fix" onClick={() => dispatch({ type: 'applyFix' })}>Apply suggested patch</button><button className="text-button" onClick={() => dispatch({ type: 'restoreConfig' })}>Restore original</button></div>}
+      {!locked && <div className="lab-row"><button className="secondary-button" data-testid="lab-apply-fix" onClick={() => dispatch({ type: 'applyFix' })}>Apply suggested patch</button><button className="text-button" data-testid="lab-restore" onClick={() => dispatch({ type: 'restoreConfig' })}>Restore original</button></div>}
       {changes.length > 0 && <ul className="lab-changes" aria-label="Changes from the original agent">{changes.map(c => <li key={c.label} className={`is-${c.kind}`}>{c.label}</li>)}</ul>}
-    </div>}
+    </div>
   </section>;
 }
 
@@ -173,25 +170,58 @@ function ScanReportPanel({ transport }: { transport: LabTransport }) {
   </details>;
 }
 
+type View = 'try' | 'understand' | 'protect' | 'check';
+function plainChange(label: string): string {
+  let m = /^System rules: (.*)$/.exec(label);
+  if (m) { const added = /\+(\d+)/.exec(m[1])?.[1]; const removed = /-(\d+)/.exec(m[1])?.[1]; return [added && `Adds ${added} rule${added === '1' ? '' : 's'} to the helper's instructions`, removed && `Removes ${removed} line${removed === '1' ? '' : 's'} from them`].filter(Boolean).join('; ') || "Edits the helper's instructions"; }
+  if ((m = /^Tool (\S+) removed$/.exec(label))) return `Takes away the ${m[1]} tool`;
+  if ((m = /^Tool (\S+): description rewritten$/.exec(label))) return `Rewrites what the ${m[1]} tool says about itself`;
+  if ((m = /^Tool (\S+): output edited$/.exec(label))) return `Edits what the ${m[1]} tool returns`;
+  return label;
+}
+const VIEWS: readonly View[] = ['try', 'understand', 'protect', 'check'];
+const VIEW_LABEL: Record<View, string> = { try: 'Try', understand: 'Understand', protect: 'Protect', check: 'Check' };
+type Primary = { label: string; action: string; onClick: () => void; disabled?: boolean };
+
+function outcomeFor(run: Run, level: LabLevel): { tone: 'risk' | 'safe' | 'neutral'; text: string } {
+  if (run.status === 'pending') return { tone: 'neutral', text: 'Testing…' };
+  if (run.status === 'failed') return { tone: 'neutral', text: `The test did not run: ${run.result?.status === 'failed' ? run.result.error : 'unknown error'} Nothing was counted.` };
+  if (run.status === 'cancelled') return { tone: 'neutral', text: 'Cancelled. Nothing was counted.' };
+  const o = run.observation as Observation;
+  if (o.kind === 'inconclusive') return { tone: 'neutral', text: `No usable answer, so it counts neither way. ${o.reason}` };
+  if (o.kind === 'violation') return o.type === level.win ? { tone: 'risk', text: `It worked. ${level.plain.observed}` } : { tone: 'risk', text: `Something else went wrong: the agent ${o.did}. Test again.` };
+  return { tone: 'safe', text: "The agent didn't fall for it this time. AI answers vary: test again, or ask for a hint." };
+}
+
 export default function Lab({ nav }: { nav: ReactNode }) {
   const [state, dispatch] = useReducer(labReducer, undefined, () => createLab('fixture'));
   const [health, setHealth] = useState<HealthView | null>(null);
   const [consent, setConsent] = useState(false);
-  const [hoodOpen, setHoodOpen] = useState(desktop);
+  const [protecting, setProtecting] = useState(false);
   const [toast, setToast] = useState('');
   const abortRef = useRef<AbortController | null>(null);
-  const resultRef = useRef<HTMLElement>(null);
+  const chainRef = useRef(false);
+  const resultRef = useRef<HTMLDivElement>(null);
   const transport: LabTransport = useMemo(() => state.source === 'live' ? createHttpTransport() : createFixtureTransport(), [state.source]);
   const level = levelOf(state);
   const pending = state.pendingRunId !== null;
-  const latest = state.runs.at(-1) ?? null;
-  const step = currentStep(state);
   const baseline = runById(state, state.baselineRunId);
   const patched = baseline ? configKey(state.config) !== baseline.configKey : false;
+  const latest = state.runs.at(-1) ?? null;
+  const lastOf = (kind: RunKind) => state.runs.filter(r => r.kind === kind).at(-1) ?? null;
+  const lastAttack = lastOf('attack');
+  const lastReplay = lastOf('replay');
+  const lastControl = lastOf('control');
+  const controlAfterReplay = lastControl && lastReplay && state.runs.indexOf(lastControl) > state.runs.indexOf(lastReplay) ? lastControl : null;
   const liveCompleted = state.runs.some(r => r.source === 'live' && r.status === 'completed');
-  const allDone = LAB_LEVELS.every(l => l.id in state.completed);
+  const last = state.levelIndex === LAB_LEVELS.length - 1;
 
-  useEffect(() => { abortRef.current?.abort(); abortRef.current = null; setHoodOpen(desktop()); }, [state.epoch]);
+  const view: View = state.stage === 'attack'
+    ? (state.runs.some(r => r.kind === 'attack' && r.status !== 'pending') ? 'understand' : 'try')
+    : state.stage === 'patch' && !patched ? (protecting ? 'protect' : 'understand')
+    : 'check';
+
+  useEffect(() => { abortRef.current?.abort(); abortRef.current = null; chainRef.current = false; setProtecting(false); setToast(''); }, [state.epoch]);
   useEffect(() => () => abortRef.current?.abort(), []);
   useEffect(() => {
     if (state.source !== 'live') { setHealth(null); return; }
@@ -200,105 +230,153 @@ export default function Lab({ nav }: { nav: ReactNode }) {
     transport.health(ac.signal).then(h => { if (!ac.signal.aborted) setHealth(h); });
     return () => ac.abort();
   }, [state.source, transport]);
-  useEffect(() => { if (state.stage === 'patch' && step === 3) setHoodOpen(true); }, [state.stage, step]);
-  // On phones the reply sits below the brief: bring the settled result into view once.
   const settledId = latest && latest.status !== 'pending' ? latest.id : null;
   useEffect(() => {
-    if (!settledId || !window.matchMedia('(max-width: 760px)').matches) return;
+    if (!settledId || !resultRef.current) return;
+    const box = resultRef.current.getBoundingClientRect();
+    if (box.top >= 0 && box.bottom <= window.innerHeight) return;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    resultRef.current?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+    resultRef.current.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
   }, [settledId]);
   useEffect(() => {
     const target = window as LabWindow;
-    target.render_lab_to_text = () => JSON.stringify({ ...labSummary(state), mode: 'lab', level: level.id, stage: state.stage, step: step < STEPS.length ? STEPS[step] : 'Done', pending, health, notice: state.notice });
+    target.render_lab_to_text = () => JSON.stringify({ ...labSummary(state), mode: 'lab', level: level.id, stage: state.stage, view, pending, health, notice: state.notice });
     return () => { delete target.render_lab_to_text; };
-  }, [state, level, step, pending, health]);
+  }, [state, level, view, pending, health]);
 
-  const run = (kind: RunKind) => {
+  const run = (kind: RunKind, from: LabState = state) => {
     setToast('');
-    if (state.source === 'live') {
-      if (!consent) { setToast('Confirm budget approval for live runs first.'); return; }
-      if (health?.state !== 'key-configured') { setToast('The lab server is not ready. Nothing was sent.'); return; }
+    if (from.source === 'live') {
+      if (!consent) { setToast('Tick the budget approval box below before running Live AI.'); chainRef.current = false; return; }
+      if (health?.state !== 'key-configured') { setToast('The Live AI server is not ready. Nothing was sent.'); chainRef.current = false; return; }
     }
     const id = crypto.randomUUID();
-    const plan = planRun(state, kind, id);
-    if (!plan.ok) { setToast(plan.error); return; }
+    const plan = planRun(from, kind, id);
+    if (!plan.ok) { setToast(plan.error); chainRef.current = false; return; }
     const ac = new AbortController();
     abortRef.current = ac;
     dispatch({ type: 'runStarted', run: plan.run });
     void transport.chat(plan.run.request, ac.signal).then(result => { dispatch({ type: 'runSettled', runId: id, result }); if (abortRef.current === ac) abortRef.current = null; });
   };
-  const retryKind: RunKind | null = latest && (latest.status === 'failed' || latest.status === 'cancelled' || latest.observation?.kind === 'inconclusive') ? latest.kind : null;
+  // After "Apply and test again" / "Test again": replay, then the normal task if the replay was clean.
+  useEffect(() => {
+    if (!chainRef.current || pending) return;
+    chainRef.current = false;
+    if (state.stage === 'control') run('control');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.stage, pending]);
+  const applyAndTest = () => {
+    const next = labReducer(state, { type: 'applyFix' });
+    dispatch({ type: 'applyFix' });
+    setProtecting(false);
+    chainRef.current = true;
+    run('replay', next);
+  };
+  const testAgain = () => { chainRef.current = true; run('replay'); };
 
-  const connection = state.source === 'fixture'
-    ? { tone: 'fixture', text: 'Scripted fixture · not AI' }
-    : !health || health.state === 'checking' ? { tone: 'pending', text: 'Checking lab server…' }
-    : health.state === 'disconnected' ? { tone: 'off', text: 'Live: not connected' }
-    : health.state === 'no-key' ? { tone: 'off', text: 'Live: server has no provider key' }
-    : liveCompleted ? { tone: 'live', text: `Live run completed · ${health.model}` }
-    : { tone: 'ready', text: `Key configured · ${health.model} · not yet verified` };
+  let primary: Primary;
+  if (pending) primary = { label: 'Testing…', action: 'pending', onClick: () => undefined, disabled: true };
+  else if (view === 'try') primary = { label: 'Test the agent', action: 'test', onClick: () => run('attack'), disabled: !state.draft.trim() };
+  else if (view === 'understand' && state.stage === 'attack') primary = { label: lastAttack && lastAttack.status !== 'completed' ? 'Try again' : 'Test again', action: 'retest', onClick: () => run('attack'), disabled: !state.draft.trim() };
+  else if (view === 'understand') primary = { label: 'Add protection', action: 'protect', onClick: () => setProtecting(true) };
+  else if (view === 'protect') primary = { label: 'Apply and test again', action: 'apply', onClick: applyAndTest };
+  else if (state.stage === 'done') primary = last ? { label: 'Play again from challenge 1', action: 'restart', onClick: () => dispatch({ type: 'select', index: 0 }) } : { label: 'Next challenge', action: 'next', onClick: () => dispatch({ type: 'select', index: state.levelIndex + 1 }) };
+  else if (state.stage === 'control') primary = { label: 'Test the normal task', action: 'normal', onClick: () => run('control') };
+  else primary = { label: 'Test again', action: 'retest-protected', onClick: testAgain };
 
-  let primary: { label: string; onClick: () => void; disabled?: boolean; testid: string };
-  if (state.stage === 'attack') primary = state.draft.trim() ? { label: 'Run attack', onClick: () => run('attack'), testid: 'lab-attack' } : { label: 'Start: load the attack', onClick: () => dispatch({ type: 'insertAttack' }), testid: 'lab-load-attack' };
-  else if (state.stage === 'patch') primary = patched ? { label: 'Replay exact attack', onClick: () => run('replay'), testid: 'lab-replay' } : { label: 'Apply suggested patch', onClick: () => { dispatch({ type: 'applyFix' }); setHoodOpen(true); }, testid: 'lab-patch' };
-  else if (state.stage === 'control') primary = { label: 'Run benign control', onClick: () => run('control'), testid: 'lab-control' };
-  else primary = state.levelIndex < LAB_LEVELS.length - 1 ? { label: 'Next level', onClick: () => dispatch({ type: 'select', index: state.levelIndex + 1 }), testid: 'lab-next' } : { label: 'Restart the lab', onClick: () => dispatch({ type: 'resetAll' }), testid: 'lab-restart' };
-  const hintWhich = state.stage === 'attack' ? 'attack' : 'fix';
-  const hintShown = state.hints[hintWhich][state.levelIndex] > 0;
+  const hintOpen = state.hints[state.stage === 'attack' ? 'attack' : 'fix'][state.levelIndex] > 0;
+  const hintText = state.stage === 'attack' ? level.attackHint : level.fixHint;
+  const attackOutcome = lastAttack ? outcomeFor(lastAttack, level) : null;
+  const preview = diffConfig(state.config, level.fix.apply(state.config));
+  const replayState = !lastReplay ? null : lastReplay.status === 'pending' ? { tone: 'neutral', text: 'Testing…' }
+    : lastReplay.observation?.kind === 'clean' ? { tone: 'safe', text: 'Blocked in this run' }
+    : lastReplay.observation?.kind === 'violation' ? { tone: 'risk', text: 'Still worked' }
+    : { tone: 'neutral', text: 'No result, not counted' };
+  const normalState = !controlAfterReplay ? { tone: 'neutral', text: lastReplay?.observation?.kind === 'clean' ? 'Not tested yet' : 'Runs after the attack is blocked' }
+    : controlAfterReplay.status === 'pending' ? { tone: 'neutral', text: 'Testing…' }
+    : controlAfterReplay.control?.passed ? { tone: 'safe', text: 'Still works' }
+    : controlAfterReplay.status === 'completed' && controlAfterReplay.observation?.kind !== 'inconclusive' ? { tone: 'risk', text: 'Broken by the protection' }
+    : { tone: 'neutral', text: 'No result, not counted' };
+  let checkNote = '';
+  if (state.stage === 'done') checkNote = `Protection: ${level.plain.protection} Checked once, in this run. A different wording can still get through.`;
+  else if (replayState?.tone === 'risk') checkNote = 'The protection did not stop it this time. Test again, or adjust it under Technical details.';
+  else if (normalState.tone === 'risk') checkNote = controlAfterReplay?.control?.reason ?? 'The normal task failed.';
+  else if (state.notice && !pending && view === 'check') checkNote = state.notice;
+  const badge = state.source === 'live' ? 'Live AI' : 'Simulation';
+  const liveStatus = state.source !== 'live' ? '' : !health || health.state === 'checking' ? 'Checking the Live AI server…'
+    : health.state === 'disconnected' ? 'Live AI server not reachable. Nothing will be sent.'
+    : health.state === 'no-key' ? 'Live AI server has no model key. Nothing will be sent.'
+    : liveCompleted ? `Live AI answered (${health.model}).` : `Server ready (${health.model}). Not tested yet.`;
 
-  return <div className="protect-app lab-app">
-    <a className="skip-link" href="#lab">Skip to the lab</a>
-    <header className="masthead"><a className="wordmark" href="#lab" aria-label="COMPASS attack lab"><span className="compass-mark" aria-hidden="true">✳</span> COMPASS</a>{nav}<span className="simulation-badge"><span /> TRAINING SIMULATION</span>
-      <div className="lab-source" role="group" aria-label="Agent source">
-        <button aria-pressed={state.source === 'fixture'} data-testid="lab-source-fixture" onClick={() => dispatch({ type: 'source', source: 'fixture' })}>Scripted</button>
-        {LIVE_ALLOWED ? <button aria-pressed={state.source === 'live'} data-testid="lab-source-live" onClick={() => dispatch({ type: 'source', source: 'live' })}>Live AI</button> : <button disabled aria-describedby="live-off-note" title="Live AI stays off on the public site until the lab server enforces access, rate and spend limits.">Live AI</button>}
-      </div>
-      <span className={`lab-conn tone-${connection.tone}`} data-testid="lab-connection" role="status"><span aria-hidden="true" />{connection.text}</span>
+  return <div className="protect-app lab-app play-app">
+    <a className="skip-link" href="#play">Skip to the challenge</a>
+    <header className="play-header"><a className="wordmark" href="#play" aria-label="COMPASS"><span className="compass-mark" aria-hidden="true">✳</span> COMPASS</a>
+      <span className={`play-badge is-${state.source}`} data-testid="lab-badge" title={state.source === 'live' ? 'Real answers from the lab server. One run proves nothing universal.' : 'Pre-scripted results. Not a real AI model.'}><span aria-hidden="true" />{badge}</span>
     </header>
-    <main id="lab">
-      <div className="lab-title"><div><p className="eyebrow">Inspect · Attack · Observe · Patch · Replay · Explain</p><h1>Practice the decision before it becomes an incident<span>.</span></h1></div>
-        <ol className="lab-steps" aria-label="Loop progress">{STEPS.map((label, i) => <li key={label} className={i < step ? 'is-done' : i === step ? 'is-current' : ''} aria-current={i === step ? 'step' : undefined}><span aria-hidden="true">{i < step ? '✓' : i + 1}</span><b>{label}</b></li>)}</ol></div>
-      <nav className="lab-levels" aria-label="Levels">{LAB_LEVELS.map((l, i) => <button key={l.id} data-testid={`lab-level-${l.id}`} aria-current={i === state.levelIndex ? 'true' : undefined} className={l.id in state.completed ? 'is-done' : ''} onClick={() => dispatch({ type: 'select', index: i })}><span className="eyebrow">{l.id in state.completed ? `✓ Patched · ${state.completed[l.id] === 'live' ? 'live' : 'scripted'}` : `Level 0${i + 1}`}</span><strong>{l.title}</strong></button>)}</nav>
-      {!LIVE_ALLOWED && <p id="live-off-note" className="lab-live-off">Scripted mode on this public page. Live AI stays off until the lab server enforces access, rate and spend limits.</p>}
-      {state.source === 'live' && <div className="lab-live-gate" data-testid="lab-live-gate"><p><strong>Live AI</strong> sends this synthetic level to the model on Vincent's lab server. One run can make up to five billable model calls. Results vary between runs.</p><label><input type="checkbox" data-testid="lab-consent" checked={consent} onChange={e => setConsent(e.target.checked)} /> I have approval to spend on this session</label>{health?.state === 'disconnected' && <p className="lab-muted">Not connected: {health.detail} Scripted mode is still available; it is never used silently.</p>}</div>}
+    <main id="play" className="play-main">
+      <p className="play-progress" data-testid="lab-progress"><span>Challenge {state.levelIndex + 1} of {LAB_LEVELS.length}</span>
+        <span className="play-steps" aria-label={`Step ${VIEWS.indexOf(view) + 1} of 4: ${VIEW_LABEL[view]}`}>{VIEWS.map((v, i) => <i key={v} className={i < VIEWS.indexOf(view) ? 'is-done' : v === view ? 'is-current' : ''} aria-hidden="true" />)}<b>{VIEW_LABEL[view]}</b></span></p>
+      <section className="play-card" aria-labelledby="play-title">
+        <h1 id="play-title">{level.plain.title}</h1>
+        <p className="play-situation">{level.plain.situation}</p>
+        <p className="play-mission"><strong>Your move:</strong> {level.plain.mission}</p>
 
-      <div className={`lab-grid ${latest ? 'has-run' : ''}`}>
-        <section className="lab-brief" aria-labelledby="goal-heading">
-          <p className="eyebrow">Level 0{state.levelIndex + 1} · {level.title}</p>
-          <h2 id="goal-heading" tabIndex={-1}>{level.goal}</h2>
-          <dl className="lab-facts"><div><dt>The agent's job</dt><dd>{level.job}</dd></div><div><dt>Why it works</dt><dd>{level.concept}</dd></div></dl>
-          <div className="lab-hint"><button className="text-button" data-testid="lab-hint" onClick={() => dispatch({ type: 'hint', which: hintWhich })}>{hintShown ? (hintWhich === 'attack' ? 'Attack hint' : 'Patch hint') : `Show ${hintWhich === 'attack' ? 'attack' : 'patch'} hint`}</button>{hintShown && <p role="note">{hintWhich === 'attack' ? level.attackHint : level.fixHint}</p>}</div>
-          <Hood state={state} dispatch={dispatch} open={hoodOpen} setOpen={setHoodOpen} />
-        </section>
-        <section className="lab-stage" aria-label="Trust boundary and tool trace">
-          <Boundary run={latest} />
-          <Trace run={latest} />
-        </section>
-        <section className="lab-result" aria-labelledby="reply-heading" ref={resultRef}>
-          <div className="lab-section-head"><h3 id="reply-heading">Agent reply</h3>{latest && <span className="eyebrow">{kindLabel[latest.kind]} · {latest.source === 'live' ? 'Live model inference' : 'Scripted fixture'}{latest.result ? ` · ${latest.result.ms} ms` : ''}</span>}</div>
-          {latest ? <>
-            {latest.result?.status === 'completed' ? <pre className="lab-reply" data-testid="lab-reply">{latest.result.reply}</pre> : <p className="lab-muted lab-reply-empty">{latest.status === 'pending' ? 'Waiting for the answer…' : 'No reply recorded.'}</p>}
-            {(() => { const o = observationText(latest); return <div className={`lab-verdict tone-${o.tone}`} data-testid="lab-verdict"><strong>{o.title}</strong><p>{o.detail}</p></div>; })()}
-          </> : <p className="lab-muted lab-reply-empty">Run the attack to see the actual reply and tool trace.</p>}
-          <Explain state={state} />
-          <Compare state={state} />
-          {allDone && <div className="lab-summary" data-testid="lab-summary"><strong>All five levels patched in this session.</strong><p>Each result is one heuristic run ({[...new Set(Object.values(state.completed))].map(s => s === 'live' ? 'live model' : 'scripted fixture').join(' + ')}). It is practice evidence, not a security guarantee.</p></div>}
-        </section>
-      </div>
+        {(view === 'try' || view === 'understand') && <label className="play-message"><span>Your test message{state.stage === 'attack' ? ' (you can edit it)' : ''}</span>
+          <textarea data-testid="lab-message" rows={3} value={state.stage === 'attack' ? state.draft : baseline?.input ?? state.draft} readOnly={state.stage !== 'attack' || pending} maxLength={2000} onChange={e => dispatch({ type: 'draft', text: e.target.value })} /></label>}
 
-      <div className="lab-actionbar" data-testid="lab-actionbar">
-        {state.stage === 'attack' && <label className="lab-draft"><span className="sr-only">Attack message</span><textarea data-testid="lab-draft" rows={1} value={state.draft} maxLength={2000} placeholder="Write an attack, or load the reference attack…" disabled={pending} onChange={e => dispatch({ type: 'draft', text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && state.draft.trim()) { e.preventDefault(); run('attack'); } }} /></label>}
-        {state.stage !== 'attack' && <p className="lab-action-note" role="status" aria-live="polite">{toast || state.notice || (state.stage === 'patch' ? (patched ? 'Patched. Replay the exact same input.' : 'Patch the agent under the hood, or apply the suggested patch.') : '')}</p>}
-        <div className="lab-actions">
-          {pending ? <button className="secondary-button" data-testid="lab-cancel" onClick={() => abortRef.current?.abort()}>Cancel run</button> : retryKind && <button className="secondary-button" data-testid="lab-retry" onClick={() => run(retryKind)}>Retry {kindLabel[retryKind].toLowerCase()}</button>}
-          {state.stage === 'patch' && !pending && <button className="secondary-button" onClick={() => setHoodOpen(true)}>Open under the hood</button>}
-          <button className="primary-button" data-testid={primary.testid} disabled={pending || primary.disabled} onClick={primary.onClick}>{pending ? 'Running…' : primary.label} <span aria-hidden="true">→</span></button>
+        {view === 'protect' && <div className="play-protect" data-testid="lab-protect-card">
+          <h2>The protection</h2>
+          <p>{level.plain.protection}</p>
+          {preview.length > 0 && <ul aria-label="What will change">{preview.map(c => <li key={c.label}>{plainChange(c.label)}</li>)}</ul>}
+          <p className="play-fine">Then the exact same message is sent again, with a fresh conversation.</p>
+        </div>}
+
+        {view === 'check' && <div className="play-check" data-testid="lab-check">
+          <div className={`play-check-row tone-${replayState?.tone ?? 'neutral'}`} data-testid="lab-check-attack"><span>Attack test</span><strong>{replayState?.text ?? 'Not tested yet'}</strong></div>
+          <div className={`play-check-row tone-${normalState.tone}`} data-testid="lab-check-normal"><span>Normal task <small>{level.plain.normalTask}</small></span><strong>{normalState.text}</strong></div>
+          {checkNote && <p className="play-note" role="status">{checkNote}</p>}
+        </div>}
+
+        {view === 'understand' && lastAttack && <div className="play-result" ref={resultRef} data-testid="lab-result" aria-live="polite">
+          {lastAttack.result?.status === 'completed' && <><span className="play-label">The agent answered</span><pre className="play-answer" data-testid="lab-answer">{lastAttack.result.reply}</pre></>}
+          {attackOutcome && <p className={`play-outcome tone-${attackOutcome.tone}`} data-testid="lab-outcome">{attackOutcome.text}</p>}
+        </div>}
+        <div className="play-actions">
+          <button className="primary-button play-primary" data-testid="lab-primary" data-action={primary.action} disabled={primary.disabled} onClick={primary.onClick}>{primary.label}<span aria-hidden="true">→</span></button>
+          {pending && <button className="text-button" data-testid="lab-cancel" onClick={() => abortRef.current?.abort()}>Cancel</button>}
+          {view === 'protect' && !pending && <button className="text-button" onClick={() => setProtecting(false)}>Back</button>}
+          {!pending && view !== 'protect' && state.stage !== 'done' && <button className="text-button" data-testid="lab-hint" aria-expanded={hintOpen} onClick={() => dispatch({ type: 'hint', which: state.stage === 'attack' ? 'attack' : 'fix' })}>Need a hint?</button>}
         </div>
-        {state.stage === 'attack' && (toast || state.notice) && <p className="lab-action-note wide" role="status" aria-live="polite">{toast || state.notice}</p>}
+        {toast && <p className="play-toast" role="alert" data-testid="lab-toast">{toast}</p>}
+        {hintOpen && view !== 'protect' && state.stage !== 'done' && <p className="play-hint" role="note" data-testid="lab-hint-text">{hintText}</p>}
+
+        {view === 'check' && <div ref={resultRef} />}
+      </section>
+
+      <div className="play-options">
+        <label className="play-select"><span>Challenge</span><select data-testid="lab-challenge" value={state.levelIndex} onChange={e => dispatch({ type: 'select', index: Number(e.target.value) })}>{LAB_LEVELS.map((l, i) => <option key={l.id} value={i}>{i + 1}. {l.plain.title}{l.id in state.completed ? ' ✓' : ''}</option>)}</select></label>
+        <div className="play-mode" role="group" aria-label="Answers come from">
+          <button aria-pressed={state.source === 'fixture'} data-testid="lab-source-fixture" onClick={() => dispatch({ type: 'source', source: 'fixture' })}>Simulation</button>
+          {LIVE_ALLOWED ? <button aria-pressed={state.source === 'live'} data-testid="lab-source-live" onClick={() => dispatch({ type: 'source', source: 'live' })}>Live AI</button> : <button disabled title="Live AI stays off on the public site until the lab server enforces access, rate and spend limits.">Live AI (off)</button>}
+        </div>
+        <button className="text-button" data-testid="lab-reset" onClick={() => dispatch({ type: 'resetLevel' })}>Start this challenge over</button>
+        {nav}
       </div>
-      {state.source === 'live' && <ScanReportPanel transport={transport} />}
-      <div className="lab-footer-row"><button className="text-button" data-testid="lab-reset" onClick={() => dispatch({ type: 'resetLevel' })}>Restart this level</button><button className="text-button" onClick={() => dispatch({ type: 'resetAll' })}>Reset the whole lab</button></div>
+      {state.source === 'live' && <div className="play-live" data-testid="lab-live-gate"><p data-testid="lab-connection" role="status">{liveStatus}</p><label><input type="checkbox" data-testid="lab-consent" checked={consent} onChange={e => setConsent(e.target.checked)} /> I have approval to spend on Live AI calls (up to 5 model calls per test)</label></div>}
+
+      <details className="play-details" data-testid="lab-details">
+        <summary>Technical details</summary>
+        <div className="play-details-body">
+          <Boundary run={latest} />
+          {latest?.result?.status === 'completed' && <section className="lab-trace"><div className="lab-section-head"><h3>Latest raw answer</h3><span className="eyebrow">{kindLabel[latest.kind]} · {latest.source === 'live' ? 'Live model' : 'Simulation'} · {latest.result.ms} ms</span></div><pre className="lab-reply">{latest.result.reply}</pre></section>}
+          <Trace run={latest} />
+          <Hood state={state} dispatch={dispatch} />
+          <Compare state={state} />
+          <Explain state={state} />
+          {state.source === 'live' && <ScanReportPanel transport={transport} />}
+        </div>
+      </details>
     </main>
-    <footer className="desk-footer"><p>COMPASS / Attack lab<span>Training simulation. Tool effects are simulated strings. Verdicts are single-run heuristics ported from the lab server.</span></p><p><span>Levels ported from server.py by Vincent. Scripted mode is local and not AI.</span></p></footer>
+    <footer className="play-footer"><p>{state.source === 'live' ? 'Live AI: real answers from the lab server.' : 'Simulation: pre-scripted results, not a real AI model.'} Tool effects are always pretend. One test is evidence, not a guarantee.</p></footer>
   </div>;
 }

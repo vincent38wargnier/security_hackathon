@@ -75,7 +75,9 @@ Do not replace the existing site's root deployment with this standalone folder.
 
 ## What works
 
-- Attack lab: five typed levels, scripted fixture transport (labelled, not AI),
+- Attack lab: one card, one action at a time (Try, Understand, Protect, Check)
+  with technical panels in a closed "Technical details" block; five typed levels,
+  a Simulation transport (pre-scripted, labelled, not AI),
   typed live adapter with health/pending/failed/cancelled/completed states,
   cancel and retry, stale-response rejection, config diff, before/after and
   benign control. Tool effects are simulated strings.

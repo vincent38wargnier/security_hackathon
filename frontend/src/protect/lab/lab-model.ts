@@ -49,14 +49,14 @@ export const toRequest = (config: LabConfig, input: string): ChatRequest => ({
 
 export function createLab(source: RunSource = 'fixture', levelIndex = 0): LabState {
   return {
-    levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', source, draft: '', runs: [],
+    levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', source, draft: LAB_LEVELS[levelIndex].attack, runs: [],
     pendingRunId: null, baselineRunId: null, cleanReplayRunId: null, epoch: 0,
     hints: { attack: LAB_LEVELS.map(() => 0), fix: LAB_LEVELS.map(() => 0) }, completed: {}, notice: '',
   };
 }
 
 const freshLevel = (state: LabState, levelIndex: number, notice = ''): LabState => ({
-  ...state, levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', draft: '', runs: [],
+  ...state, levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', draft: LAB_LEVELS[levelIndex].attack, runs: [],
   pendingRunId: null, baselineRunId: null, cleanReplayRunId: null, epoch: state.epoch + 1, notice,
 });
 

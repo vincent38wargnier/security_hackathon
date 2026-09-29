@@ -1,5 +1,5 @@
-// Browser QA for the attack lab. Scripted fixture for the full loop; Live AI only against a
-// local lab server (the key-less failure path by default). Never targets a public deployment.
+// Browser QA for the attack lab main path (Try -> Understand -> Protect -> Check).
+// Simulation for the full loop; Live AI only against a local lab server (key-less failure path).
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -16,126 +16,149 @@ const browser = await chromium.launch();
 const errors = [], external = [], api = [], checks = [];
 try {
   for (const width of [390, 768, 1440]) {
-    const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 960 }, reducedMotion: width === 390 ? 'reduce' : 'no-preference', acceptDownloads: true });
+    const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 }, reducedMotion: width === 390 ? 'reduce' : 'no-preference' });
     const page = await context.newPage();
     page.on('pageerror', e => errors.push(e.message));
-    page.on('console', m => { if (m.type() === 'error' && !/lab-api\/(health|chat).*50\d|status of 50\d/.test(m.text())) errors.push(m.text()); });
+    page.on('console', m => { if (m.type() === 'error' && !/status of 50\d/.test(m.text())) errors.push(m.text()); });
     page.on('request', r => { const d = new URL(r.url()); if (['http:', 'https:'].includes(d.protocol) && d.origin !== new URL(url).origin) external.push(r.url()); if (d.pathname.includes('api/')) api.push(`${width}:${r.method()} ${d.pathname}`); });
     const lab = () => page.evaluate(() => JSON.parse(window.render_lab_to_text()));
-    const click = id => page.getByTestId(id).click();
-    const shot = async name => {
+    const primary = page.getByTestId('lab-primary');
+    const action = () => primary.getAttribute('data-action');
+    const idle = () => page.waitForFunction(() => { const s = JSON.parse(window.render_lab_to_text()); return !s.pending; });
+    const settle = async () => { await page.waitForTimeout(50); await idle(); await page.waitForTimeout(80); await idle(); };
+    const detailsClosed = async () => assert.equal(await page.getByTestId('lab-details').evaluate(d => d.open), false, 'technical details stay closed');
+    const shot = async (name, full = false) => {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${width}/${name}: horizontal overflow`);
-      await page.waitForTimeout(400);
-      await page.screenshot({ path: resolve(output, `${width}-${name}.png`), fullPage: name.endsWith('full') });
+      await page.waitForTimeout(350);
+      await page.screenshot({ path: resolve(output, `${width}-${name}.png`), fullPage: full });
     };
-    const waitIdle = () => page.waitForFunction(() => !JSON.parse(window.render_lab_to_text()).pending);
+    const protectAndCheck = async () => {
+      assert.equal(await action(), 'protect');
+      await primary.click();
+      assert.equal((await lab()).view, 'protect');
+      await page.getByTestId('lab-protect-card').waitFor();
+      assert.equal(await action(), 'apply');
+      await primary.click();
+      await page.waitForFunction(() => { const s = JSON.parse(window.render_lab_to_text()); return !s.pending && s.stage === 'done'; });
+      assert.match(await page.getByTestId('lab-check-attack').textContent(), /Blocked in this run/);
+      assert.match(await page.getByTestId('lab-check-normal').textContent(), /Still works/);
+    };
+
     await page.goto(url);
     await page.waitForFunction(() => typeof window.render_lab_to_text === 'function');
-    assert.equal((await lab()).stage, 'attack');
-    assert.equal((await lab()).step, 'Inspect');
-    assert.match(await page.getByTestId('lab-connection').textContent(), /Scripted fixture/);
-    await shot('01-start');
-    // Level 1, keyboard start: focus the primary action and press Enter.
-    await page.getByTestId('lab-load-attack').focus();
-    await page.keyboard.press('Enter');
-    assert.match(await page.getByTestId('lab-draft').inputValue(), /verbatim/);
-    await click('lab-attack');
-    assert.equal((await lab()).pending, true);
-    await waitIdle();
     let s = await lab();
-    assert.equal(s.stage, 'patch');
-    assert.match(await page.getByTestId('lab-verdict').textContent(), /Objective reached/);
-    await shot('02-attack');
-    // Replay without a patch is refused (button is Apply suggested patch).
-    assert.equal(await page.getByTestId('lab-replay').count(), 0);
-    await click('lab-hint');
-    await click('lab-patch');
-    await shot('03-patched');
-    await click('lab-replay');
-    await waitIdle();
-    assert.equal((await lab()).stage, 'control');
-    assert.match(await page.getByTestId('lab-after').textContent(), /Not observed in this run/);
-    assert.match(await page.getByTestId('lab-compare').textContent(), /Identical input/);
-    await click('lab-control');
-    await waitIdle();
+    assert.equal(s.view, 'try'); assert.equal(s.level, 'direct');
+    assert.match(await page.getByTestId('lab-badge').textContent(), /Simulation/);
+    assert.match(await page.getByTestId('lab-progress').textContent(), /Challenge 1 of 5/);
+    assert.match(await page.getByTestId('lab-message').inputValue(), /verbatim/, 'example attack is prefilled');
+    assert.equal(await action(), 'test');
+    assert.match(await primary.textContent(), /Test the agent/);
+    await detailsClosed();
+    await shot('01-first-screen');
+    // Keyboard: Tab to the primary action and press Enter.
+    await primary.focus();
+    await page.keyboard.press('Enter');
+    await settle();
     s = await lab();
-    assert.equal(s.stage, 'done');
-    assert.match(await page.getByTestId('lab-control-result').textContent(), /Legitimate work observed/);
-    assert.match(await page.getByTestId('lab-explain').textContent(), /not observed in this run/);
-    assert.equal(s.step, 'Explain');
-    await shot('04-done');
-    // Level 2: removing the tool is not a win.
-    await click('lab-next');
+    assert.equal(s.view, 'understand'); assert.equal(s.stage, 'patch');
+    assert.match(await page.getByTestId('lab-outcome').textContent(), /^It worked\./);
+    assert.match(await page.getByTestId('lab-answer').textContent(), /BrendaZen/);
+    await detailsClosed();
+    await shot('02-result');
+    await page.getByTestId('lab-hint').click();
+    assert.match(await page.getByTestId('lab-hint-text').textContent(), /protection rule/);
+    await primary.click();
+    await shot('03-protect');
+    await page.getByRole('button', { name: 'Back' }).click();
+    assert.equal((await lab()).view, 'understand');
+    await protectAndCheck();
+    await detailsClosed();
+    await shot('04-check');
+    assert.equal(await action(), 'next');
+    await primary.click();
     assert.equal((await lab()).level, 'toolpoison');
-    await click('lab-load-attack'); await click('lab-attack'); await waitIdle();
+    assert.equal((await lab()).view, 'try');
+
+    // Challenge 2: a protection that removes the useful tool is not a win.
+    await primary.click(); await settle();
     assert.equal((await lab()).stage, 'patch');
+    await page.getByTestId('lab-details').locator(':scope > summary').click();
     await page.getByTestId('lab-remove-get_focus_tip').click();
-    await click('lab-replay'); await waitIdle();
-    await click('lab-control'); await waitIdle();
+    assert.equal(await action(), 'retest-protected');
+    await primary.click();
+    await page.waitForFunction(() => { const s = JSON.parse(window.render_lab_to_text()); return !s.pending && s.currentRuns.some(r => r.kind === 'control' && r.status !== 'pending'); });
+    assert.match(await page.getByTestId('lab-check-attack').textContent(), /Blocked in this run/);
+    assert.match(await page.getByTestId('lab-check-normal').textContent(), /Broken by the protection/);
+    assert.notEqual((await lab()).stage, 'done');
+    await shot('05-normal-task-broken');
+    await page.getByTestId('lab-restore').click();
+    await page.getByTestId('lab-details').locator(':scope > summary').click();
+    await protectAndCheck();
+
+    // Challenge 3: cancel counts nothing, retry works.
+    await page.getByTestId('lab-challenge').selectOption('2');
+    assert.equal((await lab()).level, 'mcp');
+    await primary.click();
+    await page.getByTestId('lab-cancel').click();
+    await settle();
     s = await lab();
-    assert.equal(s.stage, 'patch', 'control failed after removing the useful tool');
-    assert.match(await page.getByTestId('lab-control-result').textContent(), /Control failed/);
-    await shot('05-control-failed');
-    await page.getByRole('button', { name: 'Restore original' }).click();
-    await click('lab-apply-fix');
-    await click('lab-replay'); await waitIdle();
-    await click('lab-control'); await waitIdle();
-    assert.equal((await lab()).stage, 'done');
-    // Levels 3-5 with the suggested patch; cancel once on level 3.
-    for (const id of ['mcp', 'exfil', 'confused']) {
-      await click(`lab-level-${id}`);
-      await click('lab-load-attack');
-      if (id === 'mcp') {
-        await click('lab-attack');
-        await click('lab-cancel');
-        await waitIdle();
-        assert.equal((await lab()).stage, 'attack', 'cancel counts nothing');
-        await click('lab-retry');
-        await waitIdle();
-      } else {
-        await click('lab-attack'); await waitIdle();
-      }
-      assert.equal((await lab()).stage, 'patch', `${id} attack observed`);
-      if (id === 'confused') await shot('06-confused-attack');
-      await click('lab-patch');
-      await click('lab-replay'); await waitIdle();
-      await click('lab-control'); await waitIdle();
-      assert.equal((await lab()).stage, 'done', `${id} done`);
-    }
-    await page.getByTestId('lab-summary').waitFor();
-    await shot('07-summary');
-    // Rendered attack strings stay text.
-    await click('lab-reset');
-    await page.getByTestId('lab-draft').fill('<img src=x onerror="window.pwned=true">');
-    await click('lab-attack'); await waitIdle();
+    assert.equal(s.stage, 'attack');
+    assert.match(await page.getByTestId('lab-outcome').textContent(), /Cancelled/);
+    assert.equal(await action(), 'retest');
+    await primary.click(); await settle();
+    assert.equal((await lab()).stage, 'patch');
+    await protectAndCheck();
+
+    // Challenge 4: a stale answer after switching challenge is ignored.
+    await page.getByTestId('lab-challenge').selectOption('3');
+    await primary.click();
+    await page.getByTestId('lab-challenge').selectOption('4');
+    await page.waitForTimeout(1200);
+    s = await lab();
+    assert.equal(s.level, 'confused'); assert.equal(s.currentRuns.length, 0); assert.equal(s.view, 'try');
+    await page.getByTestId('lab-challenge').selectOption('3');
+    await primary.click(); await settle();
+    await protectAndCheck();
+
+    // Challenge 5, then last-challenge primary.
+    await primary.click();
+    assert.equal((await lab()).level, 'confused');
+    await primary.click(); await settle();
+    await protectAndCheck();
+    assert.equal(await action(), 'restart');
+
+    // Reset and escaped input: free text in Simulation is not counted and stays text.
+    await page.getByTestId('lab-reset').click();
+    assert.equal((await lab()).view, 'try');
+    await page.getByTestId('lab-message').fill('<img src=x onerror="window.pwned=true">');
+    await primary.click(); await settle();
     assert.equal(await page.evaluate(() => window.pwned), undefined);
-    assert.equal((await lab()).stage, 'attack', 'free text in fixture mode is inconclusive, not counted');
-    // Live mode against a local key-less server: disconnected/no-key label, nothing silently faked.
+    s = await lab();
+    assert.equal(s.stage, 'attack');
+    assert.match(await page.getByTestId('lab-outcome').textContent(), /No usable answer/);
+
     if (checkLive) {
-      await click('lab-source-live');
+      await page.getByTestId('lab-source-live').click();
+      assert.match(await page.getByTestId('lab-badge').textContent(), /Live AI/);
       await page.waitForFunction(() => { const h = JSON.parse(window.render_lab_to_text()).health; return h && h.state !== 'checking'; });
-      const conn = await page.getByTestId('lab-connection').textContent();
-      assert.match(conn, /Live: (server has no provider key|not connected)/);
-      await click('lab-load-attack');
-      await click('lab-attack');
-      assert.equal((await lab()).currentRuns.length, 0, 'no live run without consent and readiness');
-      await click('lab-consent');
-      await click('lab-attack');
+      assert.match(await page.getByTestId('lab-connection').textContent(), /no model key|not reachable/);
+      await primary.click();
+      assert.match(await page.getByTestId('lab-toast').textContent(), /budget approval/);
+      await page.getByTestId('lab-consent').check();
+      await primary.click();
+      assert.match(await page.getByTestId('lab-toast').textContent(), /not ready\. Nothing was sent/);
       assert.equal((await lab()).currentRuns.length, 0, 'no live run when the server is not ready');
-      await shot('08-live-gate');
+      await shot('06-live-not-ready');
+      await page.getByTestId('lab-details').locator(':scope > summary').click();
       await page.locator('.lab-scan summary').click();
       await page.waitForFunction(() => /Engine:|Not available/.test(document.querySelector('.lab-scan').textContent));
       assert.equal(/Server score/.test(await page.locator('.lab-scan').textContent()), false, 'no score without a completed status');
-      assert.match(await page.locator('.lab-scan').textContent(), /Status not reported|No report file|Not available/);
-      await click('lab-source-fixture');
+      await page.getByTestId('lab-source-fixture').click();
     }
-    // Offline drills remain available and intact.
-    await click('mode-drills');
+    await page.getByTestId('mode-drills').click();
     await page.waitForFunction(() => typeof window.render_game_to_text === 'function');
     assert.equal(JSON.parse(await page.evaluate(() => window.render_game_to_text())).phase, 'briefing');
-    assert.match(page.url(), /mode=drills/);
-    await shot('09-drills');
-    checks.push({ width, keyboardStart: true, attackPatchReplayControl: 5, toolRemovalNotAWin: true, cancelRetry: true, escapedInput: true, liveGate: checkLive, drillsPreserved: true });
+    checks.push({ width, firstScreenTry: true, keyboard: true, hint: true, protectCheck: 5, brokenNormalTaskNotAWin: true, cancelRetry: true, staleIgnored: true, reset: true, escapedInput: true, liveNotReady: checkLive, detailsClosedByDefault: true, drillsPreserved: true });
     await context.close();
   }
   assert.deepEqual(errors, [], 'console/page errors');

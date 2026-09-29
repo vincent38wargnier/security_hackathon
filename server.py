@@ -237,6 +237,7 @@ body.editing .wrap{grid-template-columns:minmax(320px,0.85fr) minmax(380px,1.15f
 .btn.warn{background:var(--warn);color:#fff;box-shadow:none}
 
 /* objective bar */
+.divider{align-self:stretch;text-align:center;font-size:12.5px;font-weight:700;color:var(--accent);border-top:2px dashed var(--accent);padding-top:8px;margin-top:6px}
 .steps{display:flex;gap:6px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--faint)}.steps span{padding:3px 10px;border-radius:20px;background:var(--surface-2)}.steps span.on{background:var(--accent);color:#fff}.steps span.ok{color:var(--ok)}
 .obj{margin:0 18px 4px;border-radius:var(--r);padding:13px 15px;border:1px solid var(--accent);background:var(--accent-soft)}
 .obj.def{border-color:var(--ok);background:var(--ok-soft)}
@@ -601,7 +602,7 @@ async function runAttack(msg){
   const v=verdict($('#sys').value,d.reply,d.trace,level.marker);
   const gotIt=(v.type===level.win);
   tn.appendChild(resultCard(v,gotIt));
-  if(phase==='attack'&&gotIt){phase='defend';renderObj();}
+  if(phase==='attack'&&gotIt){phase='defend';openHood();showHint();}
   else if(phase==='defend'&&!gotIt){phase='done';done[level.id]=true;renderPath();renderObj();}
   else renderObj();
   scroll();
@@ -621,7 +622,7 @@ function resultCard(v,gotIt){const L=level;const d=document.createElement('div')
 
 function nextLevel(){return LEVELS[LEVELS.indexOf(level)+1];}
 function resetChat(){history=[];$('#chat').innerHTML='';}
-function resetChatKeepObj(){history=[];$('#chat').querySelectorAll('.turn,.msg,.flow,.hintcard,.result').forEach(e=>e.remove());sysline('Testing your patch with the same trick…');}
+function resetChatKeepObj(){history=[];$('#chat').querySelectorAll('.hintcard').forEach(e=>e.remove());const d=document.createElement('div');d.className='divider';d.textContent='After your patch: same attack again';$('#chat').appendChild(d);scroll();}
 
 /* free send in attack phase */
 async function send(){const t=$('#inp').value.trim();if(!t)return;$('#inp').value='';

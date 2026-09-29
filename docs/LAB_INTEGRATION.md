@@ -16,7 +16,7 @@ Base: main `8bde0d2` (merged). `server.py` is unchanged by this branch. No secon
 | `/api/scan` | **Wired in Live mode only** (typed `parseScan`, drawer "Real code scan report from the lab server"). 8bde0d2 fixed the label to `engine: "Semgrep"`. The UI says it reads an existing report file and that an empty list is unknown, not clean. The server `score` is hidden when there are no findings. |
 | Offline drills (3 incidents, JSON proposal protocol) | Preserved unchanged at `?mode=drills` (tab "Offline drills"). `window.compassTraining` works as before. |
 | Guild | Separate private workspace link only. Not an integration. |
-| Public deployment | **Not deployed.** Public builds hide Live AI unless built with `VITE_LAB_LIVE=1`. |
+| Public deployment | **Live at https://mycompass.world/protect in scripted mode** (Railway deployment 2c507e0a, assets `protect-DMgtrduZ.js`). Live AI button is shown disabled with the reason; builds enable it only with `VITE_LAB_LIVE=1`. See DEPLOYMENT.md. |
 
 ## Connection states shown in the UI
 

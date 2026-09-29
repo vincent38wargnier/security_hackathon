@@ -6,7 +6,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const url = process.env.LAB_URL || 'http://127.0.0.1:8793/protect';
-if (!['127.0.0.1', 'localhost'].includes(new URL(url).hostname)) throw new Error('Lab QA runs against localhost only.');
+const approvedLive = process.env.LAB_LIVE_QA === '1' && new URL(url).origin === 'https://mycompass.world' && new URL(url).pathname === '/protect';
+if (!['127.0.0.1', 'localhost'].includes(new URL(url).hostname) && !approvedLive) throw new Error('Lab QA runs against localhost, or the deployed scripted /protect with LAB_LIVE_QA=1.');
+if (approvedLive && process.env.LAB_QA_LIVE_FAILURE !== '0') throw new Error('Set LAB_QA_LIVE_FAILURE=0 for the public page: Live AI is disabled there.');
 const output = process.env.LAB_QA_OUTPUT || '/tmp/compass-lab-qa';
 const checkLive = process.env.LAB_QA_LIVE_FAILURE !== '0';
 await mkdir(output, { recursive: true });

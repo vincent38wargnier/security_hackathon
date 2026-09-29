@@ -48,3 +48,21 @@ Disclose reuse and the synthetic scenarios in the hackathon submission.
 Manrope uses SIL OFL 1.1; retain `frontend/public/acquisition/fonts/OFL.txt`.
 No blanket license for the team's own code has been chosen in this handoff.
 No secrets, credential configuration or real user records belong in this repo.
+
+## Attack lab release, 2026-09-29 (verified)
+
+- Source: this repo `frontend/attack-patch-lab` (PR #2), mirrored into
+  `axmatea/compass-horizon` branch `claude/protect-attack-lab` commit `4c61ed5`
+  (PR axmatea/compass-horizon#4, not merged to main; merging needs review).
+- Method: clean `git archive 4c61ed5 compass` export, `railway up` to service
+  `compass-web` (project compass-nayl-vincent, production). Deployment
+  `2c507e0a-1bb1-4718-a8f1-b8a95915f791`, status SUCCESS, created 19:18:50 UTC.
+- Verified live: `/protect` serves `protect-DMgtrduZ.js` + `protect-DViFnQQT.css`,
+  identical to the locally tested production build. `/`, `/studio`, `/office`,
+  `/presentation`, `/demo`, `/horizon`, `/vision`, `/healthz` return 200 with the
+  same asset hashes as before the release. CSP still `connect-src 'none'`.
+- Browser QA against https://mycompass.world/protect (lab, scripted) and
+  `?mode=drills` passed at 390/768/1440: zero console errors, external or API requests.
+- Live AI is disabled on the public page. No lab server is exposed, no paid calls.
+- Caveat: the Railway service still has the legacy `axmatea/compass/main` trigger;
+  a push there can overwrite this CLI release.

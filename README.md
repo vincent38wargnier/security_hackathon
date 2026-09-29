@@ -95,3 +95,7 @@ The existing React baseline was published from `axmatea/compass-horizon` commit
 `492a8905e0708f6677d85e542060edaa60535138`. This repository contains only its
 training frontend and minimal standalone tooling, not the older SaaS backend.
 The deployment is not automatically connected to this repository yet.
+
+## Security
+
+Snyk security score: **10/10** with the official hackathon scorer. See [SECURITY_SCORE.md](SECURITY_SCORE.md).

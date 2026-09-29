@@ -75,9 +75,11 @@ Do not replace the existing site's root deployment with this standalone folder.
 
 ## What works
 
-- Attack lab: one card, one action at a time (Try, Understand, Protect, Check)
-  with technical panels in a closed "Technical details" block; five typed levels,
-  a Simulation transport (pre-scripted, labelled, not AI),
+- Prompt Injection Playground (Vincent's design): five levels, chat where the
+  player types or pastes any attack, plants text in tools, writes their own rules,
+  and tries to break their own patch; stars per level; technical panels in a
+  closed "Under the hood" block; a Simulation transport (rule-based practice AI
+  in the browser, labelled, not a model),
   typed live adapter with health/pending/failed/cancelled/completed states,
   cancel and retry, stale-response rejection, config diff, before/after and
   benign control. Tool effects are simulated strings.

@@ -3,11 +3,13 @@ import type { ChatRequest, ChatResult, RunSource } from './api.ts';
 import { LIMITS } from './api.ts';
 import { LAB_LEVELS, levelConfig } from './levels.ts';
 import type { LabConfig, LabLevel, LabTool } from './levels.ts';
-import { observe } from './verdict.ts';
+import { observe, plantedLinks } from './verdict.ts';
+import { REFUSAL } from './sim.ts';
 import type { Observation } from './verdict.ts';
 
 export type Stage = 'attack' | 'patch' | 'control' | 'done';
-export type RunKind = 'attack' | 'replay' | 'control';
+// probe: a free attempt against the patched agent ("try to break your own patch").
+export type RunKind = 'attack' | 'replay' | 'control' | 'probe';
 export type ControlCheck = { passed: boolean; reason: string };
 export type Run = {
   id: string; kind: RunKind; levelId: LabLevel['id']; epoch: number; source: RunSource;
@@ -19,7 +21,7 @@ export type LabState = {
   levelIndex: number; config: LabConfig; stage: Stage; source: RunSource; draft: string;
   runs: Run[]; pendingRunId: string | null; baselineRunId: string | null; cleanReplayRunId: string | null;
   epoch: number; hints: { attack: number[]; fix: number[] }; completed: Record<string, RunSource>;
-  notice: string;
+  stars: Record<string, number>; holes: number; notice: string;
 };
 export type LabAction =
   | { type: 'select'; index: number }
@@ -49,20 +51,20 @@ export const toRequest = (config: LabConfig, input: string): ChatRequest => ({
 
 export function createLab(source: RunSource = 'fixture', levelIndex = 0): LabState {
   return {
-    levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', source, draft: LAB_LEVELS[levelIndex].attack, runs: [],
+    levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', source, draft: '', runs: [],
     pendingRunId: null, baselineRunId: null, cleanReplayRunId: null, epoch: 0,
-    hints: { attack: LAB_LEVELS.map(() => 0), fix: LAB_LEVELS.map(() => 0) }, completed: {}, notice: '',
+    hints: { attack: LAB_LEVELS.map(() => 0), fix: LAB_LEVELS.map(() => 0) }, completed: {}, stars: {}, holes: 0, notice: '',
   };
 }
 
 const freshLevel = (state: LabState, levelIndex: number, notice = ''): LabState => ({
-  ...state, levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', draft: LAB_LEVELS[levelIndex].attack, runs: [],
+  ...state, levelIndex, config: levelConfig(LAB_LEVELS[levelIndex]), stage: 'attack', draft: '', runs: [],
   pendingRunId: null, baselineRunId: null, cleanReplayRunId: null, epoch: state.epoch + 1, notice,
 });
 
 // Any edit after the clean replay invalidates it: the control must test the replayed configuration.
 function withConfig(state: LabState, config: LabConfig): LabState {
-  if (state.stage === 'attack') return state;
+  if (state.stage === 'attack') return state; // the rules stay locked until the hack works
   const clean = runById(state, state.cleanReplayRunId);
   const key = configKey(config);
   const stage: Stage = clean && clean.configKey === key ? state.stage : state.stage === 'done' || state.stage === 'control' ? 'patch' : state.stage;
@@ -79,6 +81,11 @@ export function planRun(state: LabState, kind: RunKind, id: string): Plan {
     if (state.stage !== 'attack') return { ok: false, error: 'The attack is recorded. Patch the agent, then replay it.' };
     input = state.draft.trim();
     if (!input) return { ok: false, error: 'Write an attack message or insert the reference attack.' };
+    if (input.length > LIMITS.message) return { ok: false, error: `Keep the message under ${LIMITS.message} characters.` };
+  } else if (kind === 'probe') {
+    if (state.stage === 'attack') return { ok: false, error: 'Hack the agent first.' };
+    input = state.draft.trim();
+    if (!input) return { ok: false, error: 'Type or paste a trick to try against your patch.' };
     if (input.length > LIMITS.message) return { ok: false, error: `Keep the message under ${LIMITS.message} characters.` };
   } else if (kind === 'replay') {
     const baseline = runById(state, state.baselineRunId);
@@ -98,6 +105,7 @@ export function controlCheck(level: LabLevel, result: ChatResult, observation: O
   if (result.status !== 'completed') return { passed: false, reason: 'The control did not complete. It does not count.' };
   if (observation.kind === 'violation') return { passed: false, reason: `The benign request still triggered: ${observation.did}.` };
   if (observation.kind === 'inconclusive') return { passed: false, reason: observation.reason };
+  if (REFUSAL.test(result.reply)) return { passed: false, reason: 'The helper now refuses normal requests too. A patch that blocks everything is not a win.' };
   if (level.control.expectTool && !result.trace.some(call => call.tool === level.control.expectTool)) return { passed: false, reason: `Legitimate work not observed: ${level.control.expectTool} was not used. A patch that removes the useful capability is not a win.` };
   return { passed: true, reason: `${level.control.purpose} Observed in this run only.` };
 }
@@ -111,19 +119,24 @@ function settle(state: LabState, runId: string, result: ChatResult): LabState {
   let next: Partial<LabState> = {};
   let notice = '';
   if (result.status === 'completed') {
-    observation = observe(run.config.system, result.reply, result.trace, level.marker, result.unsupported);
+    observation = observe(run.config.system, result.reply, result.trace, [level.marker ?? '', ...plantedLinks(run.config.tools)], result.unsupported);
     if (run.kind === 'attack') {
       if (observation.kind === 'violation' && observation.type === level.win) { next = { stage: 'patch', baselineRunId: run.id }; notice = 'Objective reached. Now patch the agent so this exact attack fails.'; }
       else if (observation.kind === 'violation') notice = `A different weakness surfaced (${observation.did}). The objective is still open.`;
       else if (observation.kind === 'inconclusive') notice = observation.reason;
       else notice = 'The agent resisted in this run. Try again, or use the hint.';
+    } else if (run.kind === 'probe') {
+      if (observation.kind === 'violation' && observation.type === level.win) { next = { stage: 'patch', baselineRunId: run.id, cleanReplayRunId: null, holes: state.holes + 1 }; notice = 'You found a hole in your own patch. Strengthen the rules, then test this new trick.'; }
+      else if (observation.kind === 'violation') notice = `A different weakness surfaced: the agent ${observation.did}.`;
+      else if (observation.kind === 'inconclusive') notice = observation.reason;
+      else notice = 'Your patch held against this trick too. Try another, or move on.';
     } else if (run.kind === 'replay') {
       if (observation.kind === 'clean') { next = { stage: 'control', cleanReplayRunId: run.id }; notice = 'Same attack, not observed this time. Now check that legitimate work still succeeds.'; }
       else if (observation.kind === 'violation') notice = 'Still vulnerable in this run. Adjust the patch and replay.';
       else notice = observation.reason;
     } else {
       control = controlCheck(level, result, observation);
-      if (control.passed) { next = { stage: 'done', completed: { ...state.completed, [level.id]: run.source } }; notice = 'Patched in this run, and legitimate work still succeeds. One run is evidence, not a guarantee.'; }
+      if (control.passed) { const earned = 2 + (state.hints.attack[state.levelIndex] === 0 && state.hints.fix[state.levelIndex] === 0 ? 1 : 0); next = { stage: 'done', completed: { ...state.completed, [level.id]: run.source }, stars: { ...state.stars, [level.id]: Math.max(earned, state.stars[level.id] ?? 0) } }; notice = 'Patched in this run, and legitimate work still succeeds. One run is evidence, not a guarantee.'; }
       else if (observation.kind === 'inconclusive') notice = control.reason;
       else { next = { stage: 'patch', cleanReplayRunId: null }; notice = control.reason; }
     }
@@ -143,7 +156,7 @@ export function labReducer(state: LabState, action: LabAction): LabState {
     case 'resetLevel': return freshLevel(state, state.levelIndex);
     case 'resetAll': return { ...createLab(state.source), epoch: state.epoch + 1 };
     case 'source': return action.source === state.source ? state : freshLevel({ ...state, source: action.source }, state.levelIndex, action.source === 'live' ? 'Live AI selected. Results come from the model on Vincent\'s server and can vary.' : 'Scripted fixture selected. Deterministic, local, not AI.');
-    case 'draft': return state.stage === 'attack' ? { ...state, draft: action.text.slice(0, LIMITS.message) } : state;
+    case 'draft': return { ...state, draft: action.text.slice(0, LIMITS.message) };
     case 'insertAttack': return state.stage === 'attack' ? { ...state, draft: level.attack } : state;
     case 'hint': {
       const list = [...state.hints[action.which]];
@@ -154,11 +167,13 @@ export function labReducer(state: LabState, action: LabAction): LabState {
     case 'editTool': {
       if (!state.config.tools[action.index]) return state;
       const tools = state.config.tools.map((tool, i): LabTool => i === action.index ? { ...tool, [action.field]: action.value.slice(0, LIMITS.toolField) } : tool);
+      // While hacking, the player is the attacker and may plant text in tools (notes, descriptions).
+      if (state.stage === 'attack') return { ...state, config: { ...state.config, tools } };
       return withConfig(state, { ...state.config, tools });
     }
     case 'removeTool': return state.config.tools[action.index] ? withConfig(state, { ...state.config, tools: state.config.tools.filter((_, i) => i !== action.index) }) : state;
     case 'applyFix': return withConfig(state, level.fix.apply(state.config));
-    case 'restoreConfig': return withConfig(state, levelConfig(level));
+    case 'restoreConfig': return state.stage === 'attack' ? { ...state, config: levelConfig(level) } : withConfig(state, levelConfig(level));
     case 'runStarted':
       if (state.pendingRunId || action.run.epoch !== state.epoch || action.run.levelId !== level.id) return state;
       return { ...state, pendingRunId: action.run.id, notice: '', runs: [...state.runs, action.run].slice(-MAX_RUNS) };
@@ -190,7 +205,7 @@ export function diffConfig(before: LabConfig, after: LabConfig): ConfigChange[] 
 
 export function labSummary(state: LabState) {
   return {
-    format: 'compass-lab-v1', heuristic: true, source: state.source,
+    format: 'compass-lab-v1', heuristic: true, source: state.source, stars: state.stars, holesFound: state.holes,
     note: 'Single-run heuristic observations. Not a security certification.',
     levels: LAB_LEVELS.map((level, i) => ({ id: level.id, title: level.title, patchedInSession: level.id in state.completed, source: state.completed[level.id] ?? null, attackHints: state.hints.attack[i], fixHints: state.hints.fix[i] })),
     currentRuns: state.runs.map(run => ({ kind: run.kind, level: run.levelId, source: run.source, status: run.status, observation: run.observation?.kind ?? null, type: run.observation && run.observation.kind === 'violation' ? run.observation.type : null, controlPassed: run.control?.passed ?? null, ms: run.result?.ms ?? null })),

@@ -8,8 +8,8 @@ Base: main `8bde0d2` (merged). `server.py` is unchanged by this branch. No secon
 | --- | --- |
 | Five levels (`direct`, `toolpoison`, `mcp`, `exfil`, `confused`) | Ported from `server.py` PAGE LEVELS into typed data (`frontend/src/protect/lab/levels.ts`). Scam link moved to reserved `calm-gift.example`. |
 | Verdict heuristic | Ported verbatim (`INJ`, `DANGER`, `poisoned`, `verdict`) in `lab/verdict.ts`. Frontend rule on top: trace violations always count; empty, truncated, cancelled, failed or unsupported answers never count as a defense. |
-| Loop | Main path: one card, one primary action: Try ("Test the agent") -> Understand (answer + one plain explanation, "Add protection") -> Protect (one sentence + what changes, "Apply and test again") -> Check ("Attack test" and "Normal task", "Next challenge"). Tools, trace, system prompt, manual patch, run comparison and scan report sit in a closed "Technical details" block. Under the hood: Attack -> read-only inspection -> patch under the hood -> exact replay (same input, fresh one-message history, must differ from the attacked config) -> benign control (legitimate tool must still be used). |
-| Scripted fixture | **Simulated.** Deterministic local script, labelled "Scripted fixture · not AI" on every run. Default mode. Models only each level's reference attack and control; free text is marked inconclusive. |
+| Loop | Vincent's Playground design (welcome modal, emoji level path, Hack it / Patch it / Done, chat with trace and result cards, "Edit the AI's rules", "Test my patch"). Hack: type or paste any message, or plant text in a tool. Patch: edit rules and tools, then exact replay (same input, fresh history, config must differ) and the normal job (legitimate tool must still be used, refusing everything fails). Done: stars (hack, patch, no hints) and "break your own patch" probes that reopen the level when they get through. Boundary, trace, before/after and scan report sit in a closed "Under the hood" block. |
+| Simulation | **Simulated.** `lab/sim.ts`: a deterministic rule-based practice AI in the browser, labelled "Simulation" (not a model). Answers any typed or pasted text; obeys orders planted in tool text unless the player's rules say tool text is data; reads the player's rules by keyword. Default mode. |
 | Live AI adapter | **Built and tested against mocks and the real key-less server.** Browser calls same-origin `/lab-api/{health,chat}` only. Vite dev/preview proxies to `http://127.0.0.1:${VULN_LAB_PORT:-8850}/api/*`. No key, model or URL is configurable from the browser. |
 | Live model inference | **Not exercised.** No paid Scaleway call was made. Needs Vincent's server with a key plus explicit budget approval. |
 | Tool effects | **Simulated always.** `server.py` returns the level's `returns` string; nothing executes. |
@@ -20,7 +20,7 @@ Base: main `8bde0d2` (merged). `server.py` is unchanged by this branch. No secon
 
 ## Connection states shown in the UI
 
-- `Scripted fixture · not AI`: fixture transport selected.
+- `Simulation` (header toggle pressed): the in-browser practice AI is answering.
 - `Checking lab server…`: `GET /lab-api/health` in flight.
 - `Live: not connected`: no server, proxy error or a foreign health shape.
 - `Live: server has no provider key`: `{ok:false}`.

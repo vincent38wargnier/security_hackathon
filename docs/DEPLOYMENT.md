@@ -1,0 +1,50 @@
+# Baseline deployment and source provenance
+
+Live baseline: https://mycompass.world/protect
+
+Published 2026-09-29 from `axmatea/compass-horizon` commit
+`492a8905e0708f6677d85e542060edaa60535138`, using the existing COMPASS Railway
+service. Railway reported SUCCESS at 18:32:18 UTC. Served HTML and JS/CSS hashes
+matched the tested build. `/`, `/studio`, `/office`, `/presentation`, `/demo`,
+`/horizon` and `/healthz` remained available.
+
+The game and agent-proposal browser walkthrough passed live at 390/768/1440 px,
+including retries, hints, reset, escaped input, stale proposals and import size
+limits. Nineteen model/protocol tests passed in the baseline. No provider API
+was exercised by these tests. This is not a Snyk Code scan or security certification.
+
+## This repository
+
+`vincent38wargnier/security_hackathon` is the new team repository. The standalone
+frontend preserves the game source exactly; build tooling is deliberately minimal.
+It does not contain the rest of COMPASS, its runtime or production credentials.
+
+Source relationship is explicit: the current live baseline came from the older
+repository; committing here does NOT automatically deploy to mycompass.world.
+Do not claim that a new commit is live until asset and route verification passes.
+
+## Publish the next frontend release safely
+
+One designated integrator performs releases, not Vincent and Claude concurrently.
+After checks, build `frontend/dist/`. Coordinate with the existing site owner to
+add its entry/assets to the existing host while retaining all other routes and
+assets. Do not replace the site's entire dist directory or deploy this repo root
+over the current application. Prefer a tested preview before production.
+
+The current production training route sets `connect-src 'none'`. An approved live
+same-origin API adapter will require a deliberate, narrowly scoped CSP update;
+do not broadly allow arbitrary origins. Keep camera/microphone/geolocation disabled.
+Keep the HTML entry uncached or revalidated and hashed assets cacheable.
+
+The Railway service still has an older `axmatea/compass/main` source trigger.
+A push there may overwrite a CLI release. Do not push the legacy repository or
+silently migrate the whole service to this incomplete team repo. Coordinate that
+source migration with Vincent and the integrator when backend/runtime are ready.
+
+## Provenance and licensing
+
+Existing COMPASS infrastructure and frontend baseline predate this handoff.
+Disclose reuse and the synthetic scenarios in the hackathon submission.
+Manrope uses SIL OFL 1.1; retain `frontend/public/acquisition/fonts/OFL.txt`.
+No blanket license for the team's own code has been chosen in this handoff.
+No secrets, credential configuration or real user records belong in this repo.

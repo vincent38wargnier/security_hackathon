@@ -19,3 +19,19 @@
 
 This verifies the imported frontend baseline, not the future React port of
 Vincent's five-level attack/patch lab or its public deployment safety.
+
+# Attack lab verification, 2026-09-29 (branch frontend/attack-patch-lab)
+
+- `npm ci`, `npm test`: 34 pass, 0 fail (19 original + 15 lab: verdict parity,
+  exact replay input and fresh history, late/obsolete responses ignored, errors
+  and empty answers never counted, tool removal fails the control, HTTP adapter
+  errors/timeout/cancel/bounds/redaction, health shapes, all five levels end to end).
+- `npm run build` passed.
+- `npm run qa:lab` at 390/768/1440 (390 with reduced motion): keyboard start,
+  all five levels through attack/patch/replay/control, tool removal is not a win,
+  cancel and retry, escaped attack text, live gate against Vincent's server run
+  locally WITHOUT a key (health `{ok:false}`, chat 500 "No Scaleway API key"),
+  zero console errors, zero external requests, zero chat POSTs.
+- `npm run qa:protect` (drills at `?mode=drills`) passed at all widths.
+- Snyk Open Source: 0 issues across 123 dependencies. Snyk Code: not enabled for
+  the org (SNYK-CODE-0005). No paid provider call was made.

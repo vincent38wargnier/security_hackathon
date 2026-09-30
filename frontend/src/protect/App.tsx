@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { canDecide, createGame, gameReducer, gameSummary, scenarios } from './model';
 import type { GameAction, GameState } from './model';
 import { createTrainingBridge, MAX_PROPOSAL_BYTES } from './agent-bridge';
@@ -122,7 +123,7 @@ function downloadSummary(state: GameState) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function App() {
+export default function App({ nav }: { nav?: ReactNode } = {}) {
   const [state, dispatch] = useReducer(gameReducer, undefined, createGame);
   const [draft, setDraft] = useState('');
   const [run, setRun] = useState(0);
@@ -147,7 +148,7 @@ export default function App() {
 
   return <div className="protect-app">
     <a className="skip-link" href="#training">Skip to training</a>
-    <header className="masthead"><a className="wordmark" href="#training" aria-label="COMPASS training desk"><span className="compass-mark" aria-hidden="true">✳</span> COMPASS</a><span className="simulation-badge"><span /> SIMULATED TRAINING</span><button data-testid="reset" className="text-button reset-button" onClick={reset}>Reset session</button></header>
+    <header className="masthead"><a className="wordmark" href="#training" aria-label="COMPASS training desk"><span className="compass-mark" aria-hidden="true">✳</span> COMPASS</a>{nav}<span className="simulation-badge"><span /> SIMULATED TRAINING</span><button data-testid="reset" className="text-button reset-button" onClick={reset}>Reset session</button></header>
     <main id="training">
       <div className="desk-title"><div><p className="eyebrow">THE SECURITY DESK / INTERACTIVE EXERCISE</p><h1>Protect the office<span>.</span></h1></div><p className="desk-caption">Keep the work moving.<br />Keep the boundary yours.</p></div>
       <ol className="incident-progress" aria-label="Incident progress">{scenarios.map((item, i) => {

@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const url = process.env.PROTECT_URL || 'http://127.0.0.1:8792/protect';
+// The offline three-incident drills live at ?mode=drills since the attack lab became the default view.
+const url = process.env.PROTECT_URL || 'http://127.0.0.1:8793/protect?mode=drills';
 const local = ['127.0.0.1', 'localhost'].includes(new URL(url).hostname);
 const approvedLive = process.env.PROTECT_LIVE_QA === '1' && new URL(url).origin === 'https://mycompass.world' && new URL(url).pathname === '/protect';
+if (new URL(url).searchParams.get('mode') !== 'drills') throw new Error('Point PROTECT_URL at the drills mode (?mode=drills).');
 if (!local && !approvedLive) throw new Error('Use localhost, or explicitly enable QA for the deployed mycompass.world/protect simulation');
 const output = process.env.PROTECT_QA_OUTPUT || '/tmp/compass-protect-qa';
 await mkdir(output, { recursive: true });
